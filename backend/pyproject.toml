@@ -23,3 +23,15 @@ include = ["clazzziks*"]
 
 [tool.setuptools.package-data]
 clazzziks = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+# Put the backend root on sys.path so `import clazzziks` resolves regardless of
+# the directory pytest is invoked from (mirrors pylint's source-roots below).
+# This pyproject also anchors pytest's rootdir to backend/, so `.` is backend/.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.pylint.MAIN]
+# Resolve first-party imports (clazzziks.*) when linting from the backend root,
+# the same way pytest puts the package on sys.path.
+source-roots = ["."]

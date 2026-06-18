@@ -1,9 +1,14 @@
 """Offline unit tests for CLAZZZIKS pure logic (no network/yt-dlp calls)."""
 
+# Test conventions: pytest discovers bare functions, and unit tests legitimately
+# exercise non-public helpers and define throwaway classes.
+# pylint: disable=missing-function-docstring,missing-class-docstring
+# pylint: disable=protected-access,too-few-public-methods
+
 import csv
-import io
 
 import pytest
+from yt_dlp.utils import DownloadError as YtdlpDownloadError
 
 from clazzziks.formats import (
     AudioFormat,
@@ -12,6 +17,14 @@ from clazzziks.formats import (
 )
 from clazzziks.sources import detect_source, Source, looks_like_url
 from clazzziks.inputs import collect_urls, _google_sheet_csv_url
+from clazzziks.downloader import (
+    Downloader,
+    YoutubeDownloader,
+    SoundcloudDownloader,
+    SpotifyDownloader,
+    DownloadUnavailableError,
+    downloader_for,
+)
 
 
 # --- formats ---------------------------------------------------------------
@@ -95,3 +108,73 @@ def test_google_sheet_csv_url():
     csv_url = _google_sheet_csv_url(url)
     assert "ABC123/export?format=csv" in csv_url
     assert "gid=42" in csv_url
+
+
+# --- downloaders -----------------------------------------------------------
+
+@pytest.mark.parametrize("url,cls,source", [
+    ("https://www.youtube.com/watch?v=abc", YoutubeDownloader, Source.YOUTUBE),
+    ("https://youtu.be/abc", YoutubeDownloader, Source.YOUTUBE),
+    ("https://soundcloud.com/artist/track", SoundcloudDownloader, Source.SOUNDCLOUD),
+    ("https://open.spotify.com/track/xyz", SpotifyDownloader, Source.SPOTIFY),
+])
+def test_downloader_for_picks_right_implementation(url, cls, source):
+    dl = downloader_for(url)
+    assert isinstance(dl, cls)
+    assert dl.source is source
+    assert cls.handles(url)
+
+
+def test_downloader_for_rejects_unsupported():
+    with pytest.raises(ValueError):
+        downloader_for("https://example.com/song.mp3")
+
+
+def test_downloader_is_abstract():
+    # The interface itself cannot be instantiated.
+    with pytest.raises(TypeError):
+        Downloader()  # pylint: disable=abstract-class-instantiated
+
+
+def test_subclass_must_declare_source():
+    with pytest.raises(TypeError):
+        class BadDownloader(Downloader):  # missing `source`  # pylint: disable=unused-variable
+            def resolve(self, url):
+                return url
+
+
+def test_direct_sources_resolve_passthrough():
+    # YouTube / SoundCloud hand the URL straight to yt-dlp.
+    url = "https://soundcloud.com/artist/track"
+    assert SoundcloudDownloader().resolve(url) == url
+    assert YoutubeDownloader().resolve("https://youtu.be/abc") == "https://youtu.be/abc"
+
+
+def test_translate_drm_error_is_source_aware():
+    dl = SoundcloudDownloader()
+    exc = YtdlpDownloadError("ERROR: [soundcloud] 123: This video is DRM protected")
+    friendly = dl._translate_error(exc, "https://soundcloud.com/a/b")
+    assert isinstance(friendly, DownloadUnavailableError)
+    msg = str(friendly)
+    assert "SoundCloud" in msg and "DRM" in msg
+    assert "video" not in msg  # audio app: never call it a "video"
+
+
+def test_failure_explanation_is_polymorphic():
+    # Each subclass explains its own signature failure mode differently.
+    yt = YoutubeDownloader()._explain_failure("Private video. Sign in", "u")
+    assert "private" in yt.lower()
+
+    sc = SoundcloudDownloader()._explain_failure("This video is DRM protected", "u")
+    assert "DRM" in sc and "encrypted" in sc
+
+    sp = SpotifyDownloader()._explain_failure("Unable to download webpage", "u")
+    assert "Spotify" in sp and "YouTube" in sp
+
+
+def test_spotify_select_result_unwraps_search_playlist():
+    dl = SpotifyDownloader()
+    info = {"_type": "playlist", "entries": [{"title": "match", "abr": 256}]}
+    assert dl._select_result(info, "u")["title"] == "match"
+    with pytest.raises(DownloadUnavailableError):
+        dl._select_result({"_type": "playlist", "entries": []}, "u")

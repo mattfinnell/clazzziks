@@ -18,7 +18,7 @@ import tempfile
 from flask import Blueprint, Flask, request, render_template, send_file, jsonify
 
 from .formats import AudioFormat, SUPPORTED_FORMATS, DEFAULT_MP3_BITRATE, BUNDLE_FORMAT
-from .downloader import download_audio
+from .downloader import download_audio, DownloadUnavailableError
 from .bundle import download_bundle
 from .inputs import collect_urls
 
@@ -66,6 +66,9 @@ def download():
         return _serve_bundle(urls, fmt, bitrate)
     except ValueError as exc:
         return _error(str(exc), 400)
+    except DownloadUnavailableError as exc:
+        # The track exists but can't be downloaded (DRM, geo-block, removed).
+        return _error(str(exc), 422)
     except Exception as exc:  # noqa: BLE001
         return _error(f"Download failed: {exc}", 502)
 
