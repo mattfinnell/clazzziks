@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CLAZZZIKS — Audio Downloader</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0e0f13; color: #e8e8ea; margin: 0;
+      display: flex; min-height: 100vh; align-items: center; justify-content: center;
+    }
+    .card {
+      width: min(640px, 92vw); background: #16181f; border: 1px solid #262a35;
+      border-radius: 16px; padding: 28px 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.4);
+    }
+    h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 1px; }
+    p.sub { margin: 0 0 20px; color: #8b909c; font-size: 14px; }
+    label { display: block; font-size: 13px; color: #aeb4c0; margin: 14px 0 6px; }
+    textarea, select {
+      width: 100%; background: #0e0f13; color: #e8e8ea; border: 1px solid #2c313d;
+      border-radius: 10px; padding: 12px; font-size: 14px; font-family: inherit;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    .row { display: flex; gap: 14px; }
+    .row > div { flex: 1; }
+    button {
+      margin-top: 20px; width: 100%; padding: 13px; border: 0; border-radius: 10px;
+      background: linear-gradient(135deg, #6d5efc, #4f8cff); color: #fff;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: progress; }
+    .note { margin-top: 14px; font-size: 13px; min-height: 18px; }
+    .note.err { color: #ff8b8b; }
+    .note.ok { color: #8bff9e; }
+    .note.warn { color: #ffd27a; }
+    code { color: #9aa4ff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>CLAZZZIKS</h1>
+    <p class="sub">Paste one link for a single file, or many links (newlines, CSV text,
+      or a public Google Sheets URL) for a lossless ZIP bundle.</p>
+
+    <form id="form">
+      <label for="links">Link(s)</label>
+      <textarea id="links" name="links" placeholder="https://youtu.be/...&#10;https://soundcloud.com/...&#10;https://open.spotify.com/track/..."></textarea>
+
+      <div class="row">
+        <div>
+          <label for="format">Format</label>
+          <select id="format" name="format">
+            {% for f in formats %}
+            <option value="{{ f }}" {% if f == default_format %}selected{% endif %}>{{ f|upper }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="bitrate">MP3 bitrate (kbps)</label>
+          <select id="bitrate" name="bitrate">
+            <option value="320" selected>320</option>
+            <option value="256">256</option>
+            <option value="192">192</option>
+          </select>
+        </div>
+      </div>
+
+      <button type="submit" id="go">Download</button>
+      <div class="note" id="note"></div>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('form');
+    const note = document.getElementById('note');
+    const go = document.getElementById('go');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      note.className = 'note';
+      note.textContent = 'Working… this can take a moment per track.';
+      go.disabled = true;
+
+      try {
+        const data = new URLSearchParams(new FormData(form));
+        const resp = await fetch('/download', { method: 'POST', body: data });
+
+        if (!resp.ok) {
+          const msg = await resp.json().catch(() => ({ error: resp.statusText }));
+          note.className = 'note err';
+          note.textContent = 'Error: ' + (msg.error || resp.statusText);
+          return;
+        }
+
+        const warnings = resp.headers.get('X-Clazzziks-Warnings');
+        const blob = await resp.blob();
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)/i);
+        const filename = match ? decodeURIComponent(match[1]) : 'download';
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+        a.remove(); URL.revokeObjectURL(url);
+
+        if (warnings) {
+          note.className = 'note warn';
+          note.textContent = 'Done with warnings: ' + warnings;
+        } else {
+          note.className = 'note ok';
+          note.textContent = 'Downloaded ' + filename;
+        }
+      } catch (err) {
+        note.className = 'note err';
+        note.textContent = 'Error: ' + err.message;
+      } finally {
+        go.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

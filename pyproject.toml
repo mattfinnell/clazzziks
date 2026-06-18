@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clazzziks"
+version = "0.1.0"
+description = "Audio downloader for YouTube, SoundCloud and Spotify (WAV/MP3/FLAC)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2026.6.9",
+    "flask>=3.0",
+    "requests>=2.31",
+]
+
+[project.scripts]
+clazzziks = "clazzziks.cli:main"
+clazzziks-web = "clazzziks.web:main"
+
+[tool.setuptools.packages.find]
+include = ["clazzziks*"]
+
+[tool.setuptools.package-data]
+clazzziks = ["templates/*.html"]
