@@ -1,12 +1,10 @@
-"""Core download + transcode logic built on yt-dlp and ffmpeg.
+"""Shared download + transcode machinery for every platform.
 
-Each streaming platform is modelled as a :class:`Downloader` subclass
-(:class:`YoutubeDownloader`, :class:`SoundcloudDownloader`,
-:class:`SpotifyDownloader`). :class:`Downloader` is an abstract base that owns
-only the shared *orchestration* (the download -> transcode -> locate-output
-pipeline); every platform-specific detail — how to resolve a URL, how to pick
-the result, and how to explain a failure — is overridden polymorphically by the
-subclass. Adding a new platform means writing one more subclass, nothing else.
+:class:`Downloader` is an abstract base that owns only the shared *orchestration*
+(the download -> transcode -> locate-output pipeline). Each concrete platform
+lives in its own module (``youtube``, ``soundcloud``, ``spotify``) and overrides
+the polymorphic hooks here. Adding a new platform means writing one more module,
+nothing else.
 """
 
 from __future__ import annotations
@@ -23,14 +21,14 @@ from typing import ClassVar
 import yt_dlp
 from yt_dlp.utils import DownloadError as _YtdlpDownloadError
 
-from .formats import (
+from ..formats import (
     AudioFormat,
     DEFAULT_MP3_BITRATE,
     mp3_bitrate_warning,
     source_bitrate_warning,
 )
-from .logging_config import log_event
-from .sources import Source, detect_source, resolve as _resolve_source_url
+from ..logging_config import log_event
+from ..sources import Source, detect_source
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +65,15 @@ class _SilentLogger:
     def error(self, msg): ...
 
 
-_SOURCE_LABELS = {
+SOURCE_LABELS = {
     Source.YOUTUBE: "YouTube",
     Source.SOUNDCLOUD: "SoundCloud",
     Source.SPOTIFY: "Spotify",
 }
+
+
+def elapsed_ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
 
 
 class Downloader(ABC):
@@ -104,7 +106,7 @@ class Downloader(ABC):
     @property
     def label(self) -> str:
         """Human-friendly platform name used in user-facing messages."""
-        return _SOURCE_LABELS.get(self.source, "this")
+        return SOURCE_LABELS.get(self.source, "this")
 
     @abstractmethod
     def resolve(self, url: str) -> str:
@@ -147,7 +149,7 @@ class Downloader(ABC):
             log_event(
                 logger, logging.WARNING, "download.unavailable",
                 url=url, source=self.source.value,
-                duration_ms=_elapsed_ms(started), reason=str(error),
+                duration_ms=elapsed_ms(started), reason=str(error),
             )
             raise error from exc
         except DownloadUnavailableError as exc:
@@ -155,7 +157,7 @@ class Downloader(ABC):
             log_event(
                 logger, logging.WARNING, "download.unavailable",
                 url=url, source=self.source.value,
-                duration_ms=_elapsed_ms(started), reason=str(exc),
+                duration_ms=elapsed_ms(started), reason=str(exc),
             )
             raise
 
@@ -175,7 +177,7 @@ class Downloader(ABC):
             logger, logging.INFO, "download.complete",
             url=url, source=self.source.value, format=fmt.value,
             title=result.title, path=str(path),
-            duration_ms=_elapsed_ms(started), warnings=len(warnings),
+            duration_ms=elapsed_ms(started), warnings=len(warnings),
         )
         return result
 
@@ -208,7 +210,7 @@ class Downloader(ABC):
 
         Direct sources return a single track, so the default is a passthrough
         (with a defensive unwrap if a stray playlist appears). Search-based
-        sources override this — see :class:`SpotifyDownloader`.
+        sources override this — see :class:`~clazzziks.downloader.spotify`.
         """
         entries = self._entries(info)
         if entries is None:
@@ -260,116 +262,3 @@ class Downloader(ABC):
         raise FileNotFoundError(
             f"Download completed but no output file was found for {info.get('title')!r}."
         )
-
-
-class YoutubeDownloader(Downloader):
-    """YouTube audio: yt-dlp downloads the page URL directly."""
-
-    source = Source.YOUTUBE
-
-    def resolve(self, url: str) -> str:
-        return url
-
-    def _explain_failure(self, raw: str, url: str) -> str:
-        low = raw.lower()
-        if any(k in low for k in ("private", "members-only", "sign in", "login")):
-            return f"This YouTube video is private or members-only and can't be downloaded. {url}"
-        if any(k in low for k in ("unavailable", "removed", "terminated", "deleted")):
-            return f"This YouTube video is unavailable (removed or taken down). {url}"
-        if "geo" in low or "not available in your country" in low:
-            return f"This YouTube video is geo-restricted and not available here. {url}"
-        return super()._explain_failure(raw, url)
-
-
-class SoundcloudDownloader(Downloader):
-    """SoundCloud audio: yt-dlp downloads the page URL directly.
-
-    Many tracks are now served only as AES-encrypted (DRM) streams, which
-    yt-dlp cannot decrypt; that's this platform's signature failure mode.
-    """
-
-    source = Source.SOUNDCLOUD
-
-    def resolve(self, url: str) -> str:
-        return url
-
-    def _explain_failure(self, raw: str, url: str) -> str:
-        low = raw.lower()
-        if "drm" in low:
-            return (
-                "This SoundCloud track is DRM-protected: its only streams are "
-                f"encrypted and cannot be downloaded. {url}"
-            )
-        if "geo" in low or "not available in your" in low:
-            return f"This SoundCloud track is geo-restricted and not available here. {url}"
-        return super()._explain_failure(raw, url)
-
-
-class SpotifyDownloader(Downloader):
-    """Spotify audio.
-
-    Spotify streams are DRM-protected and cannot be downloaded directly, so we
-    resolve the track's metadata and hand yt-dlp a YouTube search for the same
-    recording (the strategy tools like spotdl use). The search therefore returns
-    a playlist-shaped result, and failures are really "no YouTube match".
-    """
-
-    source = Source.SPOTIFY
-
-    def resolve(self, url: str) -> str:
-        return _resolve_source_url(url)
-
-    def _select_result(self, info: dict, url: str) -> dict:
-        # A ``ytsearch`` always yields a playlist; take the top match.
-        entries = self._entries(info) or []
-        if not entries:
-            raise DownloadUnavailableError(
-                f"No YouTube match found for this Spotify track. {url}"
-            )
-        return entries[0]
-
-    def _explain_failure(self, raw: str, url: str) -> str:
-        return (
-            "Couldn't fetch a downloadable YouTube match for this Spotify track: "
-            f"{raw or 'no results'}. {url}"
-        )
-
-
-def _elapsed_ms(started: float) -> int:
-    return round((time.perf_counter() - started) * 1000)
-
-
-# Order matters only if hosts overlap (they don't); kept explicit for clarity.
-_DOWNLOADERS: list[type[Downloader]] = [
-    YoutubeDownloader,
-    SoundcloudDownloader,
-    SpotifyDownloader,
-]
-
-
-def downloader_for(url: str) -> Downloader:
-    """Return the :class:`Downloader` responsible for ``url``.
-
-    Raises :class:`ValueError` for hosts outside the supported platforms
-    (YouTube, SoundCloud, Spotify).
-    """
-    for cls in _DOWNLOADERS:
-        if cls.handles(url):
-            return cls()
-    supported = ", ".join(_SOURCE_LABELS[c.source] for c in _DOWNLOADERS)
-    raise ValueError(
-        f"Unsupported source for {url!r}. Supported platforms: {supported}."
-    )
-
-
-def download_audio(
-    url: str,
-    fmt: AudioFormat | str = AudioFormat.MP3,
-    outdir: str | os.PathLike = ".",
-    bitrate: int = DEFAULT_MP3_BITRATE,
-) -> DownloadResult:
-    """Download the audio at ``url`` and transcode it to ``fmt``.
-
-    Thin facade that dispatches to the right :class:`Downloader`.
-    """
-    return downloader_for(url).download(url, fmt=fmt, outdir=outdir, bitrate=bitrate)
