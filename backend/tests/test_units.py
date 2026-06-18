@@ -6,6 +6,9 @@
 # pylint: disable=protected-access,too-few-public-methods
 
 import csv
+import json
+import logging
+import sys
 
 import pytest
 from yt_dlp.utils import DownloadError as YtdlpDownloadError
@@ -25,6 +28,7 @@ from clazzziks.downloader import (
     DownloadUnavailableError,
     downloader_for,
 )
+from clazzziks.logging_config import JsonFormatter, log_event
 
 
 # --- formats ---------------------------------------------------------------
@@ -178,3 +182,44 @@ def test_spotify_select_result_unwraps_search_playlist():
     assert dl._select_result(info, "u")["title"] == "match"
     with pytest.raises(DownloadUnavailableError):
         dl._select_result({"_type": "playlist", "entries": []}, "u")
+
+
+# --- structured logging ----------------------------------------------------
+
+def _format(record) -> dict:
+    return json.loads(JsonFormatter().format(record))
+
+
+def test_json_formatter_emits_core_fields():
+    record = logging.LogRecord(
+        "clazzziks.test", logging.INFO, __file__, 1, "download.start", None, None
+    )
+    out = _format(record)
+    assert out["level"] == "INFO"
+    assert out["logger"] == "clazzziks.test"
+    assert out["event"] == "download.start"
+    assert "timestamp" in out
+
+
+def test_log_event_packs_context(caplog):
+    logger = logging.getLogger("clazzziks.test")
+    with caplog.at_level(logging.INFO, logger="clazzziks.test"):
+        log_event(logger, logging.INFO, "download.complete", url="u", duration_ms=12)
+    record = caplog.records[-1]
+    assert record.getMessage() == "download.complete"
+    assert record.context == {"url": "u", "duration_ms": 12}
+    # And the formatter nests those fields under "context".
+    assert _format(record)["context"]["duration_ms"] == 12
+
+
+def test_json_formatter_includes_exception():
+    exc_info = None
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        exc_info = sys.exc_info()
+    record = logging.LogRecord(
+        "clazzziks.test", logging.ERROR, __file__, 1, "oops", None, exc_info
+    )
+    out = _format(record)
+    assert "ValueError: boom" in out["exception"]

@@ -10,6 +10,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from .formats import (
@@ -21,6 +22,7 @@ from .formats import (
 from .downloader import download_audio
 from .bundle import download_bundle
 from .inputs import collect_urls
+from .logging_config import configure_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,11 +59,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Output directory (default: current directory).",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Emit structured logs to stderr (-v: info, -vv: debug).",
+    )
     return parser
+
+
+def _log_level(verbose: int) -> str | None:
+    """Pick a log level from -v count, unless CLAZZZIKS_LOG_LEVEL overrides it."""
+    if os.getenv("CLAZZZIKS_LOG_LEVEL"):
+        return None  # let configure_logging honor the env var
+    if verbose >= 2:
+        return "DEBUG"
+    if verbose == 1:
+        return "INFO"
+    return "WARNING"  # quiet by default so logs don't clutter normal CLI output
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    configure_logging(level=_log_level(args.verbose))
 
     if not args.input:
         print("error: no link(s) provided. See --help.", file=sys.stderr)

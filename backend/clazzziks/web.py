@@ -13,14 +13,20 @@ Routes:
 
 from __future__ import annotations
 
+import logging
 import tempfile
+import time
+import uuid
 
-from flask import Blueprint, Flask, request, render_template, send_file, jsonify
+from flask import Blueprint, Flask, g, request, render_template, send_file, jsonify
 
 from .formats import AudioFormat, SUPPORTED_FORMATS, DEFAULT_MP3_BITRATE, BUNDLE_FORMAT
 from .downloader import download_audio, DownloadUnavailableError
 from .bundle import download_bundle
 from .inputs import collect_urls
+from .logging_config import configure_logging, log_event
+
+logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -58,6 +64,11 @@ def download():
     if not urls:
         return _error("No valid links found in the input.", 400)
 
+    log_event(
+        logger, logging.INFO, "download.request",
+        request_id=g.get("request_id"), links=len(urls), bitrate=bitrate,
+    )
+
     try:
         if len(urls) == 1:
             fmt = _parse_format(payload.get("format"), default=AudioFormat.MP3)
@@ -70,12 +81,39 @@ def download():
         # The track exists but can't be downloaded (DRM, geo-block, removed).
         return _error(str(exc), 422)
     except Exception as exc:  # noqa: BLE001
+        log_event(
+            logger, logging.ERROR, "download.failed",
+            request_id=g.get("request_id"), error=str(exc), exc_info=True,
+        )
         return _error(f"Download failed: {exc}", 502)
 
 
 def create_app() -> Flask:
+    configure_logging()
     app = Flask(__name__)
     app.register_blueprint(api)
+
+    @app.before_request
+    def _start_request():
+        # Tag every request so its log lines can be correlated end to end.
+        g.request_id = uuid.uuid4().hex[:8]
+        g.request_started = time.perf_counter()
+
+    @app.after_request
+    def _log_request(response):
+        started = g.get("request_started")
+        log_event(
+            logger, logging.INFO, "http.request",
+            request_id=g.get("request_id"),
+            method=request.method,
+            path=request.path,
+            status=response.status_code,
+            duration_ms=(
+                round((time.perf_counter() - started) * 1000)
+                if started is not None else None
+            ),
+        )
+        return response
 
     @app.after_request
     def add_cors_headers(response):

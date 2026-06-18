@@ -11,8 +11,10 @@ subclass. Adding a new platform means writing one more subclass, nothing else.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +29,10 @@ from .formats import (
     mp3_bitrate_warning,
     source_bitrate_warning,
 )
+from .logging_config import log_event
 from .sources import Source, detect_source, resolve as _resolve_source_url
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadUnavailableError(RuntimeError):
@@ -125,28 +130,54 @@ class Downloader(ABC):
         if (w := mp3_bitrate_warning(bitrate)) and fmt is AudioFormat.MP3:
             warnings.append(w)
 
+        started = time.perf_counter()
+        log_event(
+            logger, logging.INFO, "download.start",
+            url=url, source=self.source.value, format=fmt.value, bitrate=bitrate,
+        )
+
         target = self.resolve(url)
 
         try:
             with yt_dlp.YoutubeDL(self._ydl_options(fmt, outdir, bitrate)) as ydl:
                 info = ydl.extract_info(target, download=True)
+            info = self._select_result(info, url)
         except _YtdlpDownloadError as exc:
-            raise self._translate_error(exc, url) from exc
-
-        info = self._select_result(info, url)
+            error = self._translate_error(exc, url)
+            log_event(
+                logger, logging.WARNING, "download.unavailable",
+                url=url, source=self.source.value,
+                duration_ms=_elapsed_ms(started), reason=str(error),
+            )
+            raise error from exc
+        except DownloadUnavailableError as exc:
+            # e.g. a search that resolved to zero results (Spotify path).
+            log_event(
+                logger, logging.WARNING, "download.unavailable",
+                url=url, source=self.source.value,
+                duration_ms=_elapsed_ms(started), reason=str(exc),
+            )
+            raise
 
         if (w := source_bitrate_warning(fmt, info.get("abr"))):
             warnings.append(w)
 
         path = self._resolve_output_path(ydl, info, fmt, outdir)
 
-        return DownloadResult(
+        result = DownloadResult(
             path=path,
             title=info.get("title", "audio"),
             source=self.source.value,
             fmt=fmt,
             warnings=warnings,
         )
+        log_event(
+            logger, logging.INFO, "download.complete",
+            url=url, source=self.source.value, format=fmt.value,
+            title=result.title, path=str(path),
+            duration_ms=_elapsed_ms(started), warnings=len(warnings),
+        )
+        return result
 
     # -- shared internals ----------------------------------------------------
 
@@ -302,6 +333,10 @@ class SpotifyDownloader(Downloader):
             "Couldn't fetch a downloadable YouTube match for this Spotify track: "
             f"{raw or 'no results'}. {url}"
         )
+
+
+def _elapsed_ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
 
 
 # Order matters only if hosts overlap (they don't); kept explicit for clarity.
