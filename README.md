@@ -1,8 +1,35 @@
 # CLAZZZIKS
 
 Audio downloader for **YouTube**, **SoundCloud**, and **Spotify**. Outputs
-**WAV**, **MP3** (320kbps default, warns if lower), or **FLAC** — via a web UI,
-a CLI, or a small HTTP API.
+**WAV**, **MP3** (320kbps default, warns if lower), or **FLAC** — via a React
+web utility, a CLI, or a small HTTP API.
+
+## Project layout
+
+```
+backend/    Python package (yt-dlp + ffmpeg core, CLI, Flask API) + tests
+frontend/   React + Vite web utility that talks to the backend over /api
+```
+
+The frontend calls the backend only through `/api`. In development the Vite
+dev server proxies `/api` to Flask (no CORS/port juggling); the backend also
+sends permissive CORS headers so the two can run on separate origins if needed.
+
+## Quick start (both halves)
+
+```bash
+# 1. Backend  (terminal A)
+cd backend
+pip install -r requirements.txt        # needs ffmpeg on PATH
+python -m clazzziks.web --port 5000
+
+# 2. Frontend (terminal B)
+cd frontend
+npm install
+npm run dev                            # http://localhost:5173
+```
+
+Point the proxy elsewhere with `VITE_API_TARGET=http://host:port npm run dev`.
 
 ## How it works
 
@@ -18,12 +45,14 @@ a CLI, or a small HTTP API.
 - `ffmpeg` on your `PATH`
 
 ```bash
+cd backend
 pip install -r requirements.txt   # or: pip install -e .
 ```
 
 ## CLI
 
 ```bash
+cd backend
 # Single link -> one audio file
 python -m clazzziks "https://youtu.be/<id>"                 # MP3 320 by default
 python -m clazzziks "https://youtu.be/<id>" -f wav -o ./out
@@ -37,28 +66,31 @@ Batch input accepts a text file (one URL per line), a CSV file, inline text, or
 a **public** Google Sheets URL. After `pip install -e .` the `clazzziks` and
 `clazzziks-web` commands are available directly.
 
-## Web interface
+## Web utility (React frontend)
 
-```bash
-python -m clazzziks.web --host 0.0.0.0 --port 5000
-# then open http://localhost:5000
-```
+The frontend (`frontend/`) is a Vite + React single-page app. Run the backend
+and `npm run dev` (see Quick start), then open http://localhost:5173. It fetches
+the supported formats from the backend, detects single-vs-bundle from the link
+count, shows backend health, and surfaces quality warnings. `npm run build`
+emits static assets to `frontend/dist/` for hosting behind any web server.
 
-Paste one link for a single file, or many links for a ZIP bundle. Quality
-warnings are returned in the `X-Clazzziks-Warnings` response header.
+The Flask backend also serves a minimal no-build fallback form at `/`.
 
 ## HTTP API
 
 ```
-POST /download    form/JSON: { links, format?, bitrate? }
-                  -> audio file (1 link) or application/zip bundle (many)
-GET  /health      -> {"status":"ok"}
+GET  /api/health    -> {"status":"ok"}
+GET  /api/formats   -> supported formats + defaults (drives the UI)
+POST /api/download  form/JSON: { links, format?, bitrate? }
+                    -> audio file (1 link) or application/zip bundle (many)
 ```
 
 ```bash
-curl -X POST localhost:5000/download \
+curl -X POST localhost:5000/api/download \
   -d 'links=https://youtu.be/<id>' -d 'format=mp3' -OJ
 ```
+
+Quality warnings are returned in the `X-Clazzziks-Warnings` response header.
 
 ## Formats & quality
 
@@ -74,5 +106,6 @@ produce warnings (CLI stderr / API response header).
 ## Tests
 
 ```bash
+cd backend
 python -m pytest        # offline unit tests (formats, source detection, input parsing)
 ```

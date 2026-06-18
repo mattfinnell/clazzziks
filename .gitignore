@@ -33,6 +33,14 @@ clazzziks_bundle*.zip
 out/
 downloads/
 
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+*.local
+
 # Editor / OS
 .vscode/
 .idea/
