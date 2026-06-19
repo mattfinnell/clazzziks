@@ -42,6 +42,9 @@ clazzziks = ["templates/*.html", "openapi.json"]
 # This pyproject also anchors pytest's rootdir to backend/, so `.` is backend/.
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "e2e: real-network end-to-end tests (deselect with '-m not e2e')",
+]
 
 [tool.pylint.MAIN]
 # Resolve first-party imports (clazzziks.*) when linting from the backend root,
