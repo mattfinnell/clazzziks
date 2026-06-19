@@ -7,12 +7,12 @@ web utility, a CLI, or a small HTTP API.
 ## Project layout
 
 ```
-backend/    Python package (yt-dlp + ffmpeg core, CLI, Flask API) + tests
+backend/    Python package (yt-dlp + ffmpeg core, CLI, FastAPI API) + tests
 frontend/   React + Vite web utility that talks to the backend over /api
 ```
 
 The frontend calls the backend only through `/api`. In development the Vite
-dev server proxies `/api` to Flask (no CORS/port juggling); the backend also
+dev server proxies `/api` to FastAPI (no CORS/port juggling); the backend also
 sends permissive CORS headers so the two can run on separate origins if needed.
 
 ## Quick start (both halves)
@@ -74,15 +74,16 @@ the supported formats from the backend, detects single-vs-bundle from the link
 count, shows backend health, and surfaces quality warnings. `npm run build`
 emits static assets to `frontend/dist/` for hosting behind any web server.
 
-The Flask backend also serves a minimal no-build fallback form at `/`.
+The FastAPI backend also serves a minimal no-build fallback form at `/`.
 
 ## HTTP API
 
 ```
-GET  /api/health    -> {"status":"ok"}
-GET  /api/formats   -> supported formats + defaults (drives the UI)
-POST /api/download  form/JSON: { links, format?, bitrate? }
-                    -> audio file (1 link) or application/zip bundle (many)
+GET  /api/health        -> {"status":"ok"}
+GET  /api/openapi.json  -> the shared API contract (see below)
+GET  /api/formats       -> supported formats + defaults (drives the UI)
+POST /api/download      form/JSON: { links, format?, bitrate? }
+                        -> audio file (1 link) or application/zip bundle (many)
 ```
 
 ```bash
@@ -91,6 +92,14 @@ curl -X POST localhost:5000/api/download \
 ```
 
 Quality warnings are returned in the `X-Clazzziks-Warnings` response header.
+
+### Shared API contract
+
+`backend/clazzziks/openapi.json` (OpenAPI 3.1) is the **single source of truth**
+for the `/api` surface shared by the backend and the React frontend. The backend
+serves it at `/api/openapi.json`; the frontend client (`frontend/src/api.js`)
+builds against the same shapes; and `backend/tests/test_contract.py` validates
+the backend's live responses against it, so the two halves can't silently drift.
 
 ## Formats & quality
 
@@ -107,5 +116,6 @@ produce warnings (CLI stderr / API response header).
 
 ```bash
 cd backend
-python -m pytest        # offline unit tests (formats, source detection, input parsing)
+pip install -e ".[dev]"   # pytest + jsonschema (contract validation)
+python -m pytest          # offline: unit, web API, and contract tests
 ```

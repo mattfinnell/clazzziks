@@ -18,5 +18,13 @@ Environment overrides:
 
 Source:
 
-- `src/api.js` — backend client (`fetchConfig`, `requestDownload`, `saveBlob`).
+- `src/api.js` — backend client (`fetchConfig`, `fetchContract`, `requestDownload`, `saveBlob`).
 - `src/App.jsx` — the UI (link input, format/bitrate, single-vs-bundle, warnings).
+
+## API contract
+
+The backend and frontend share a single source of truth for the `/api` surface:
+`backend/clazzziks/openapi.json` (OpenAPI 3.1), served live at
+`/api/openapi.json` (`fetchContract()`). The request/response shapes in
+`src/api.js` follow it, and the backend validates its responses against it in
+`backend/tests/test_contract.py` — so the two sides can't silently drift.
