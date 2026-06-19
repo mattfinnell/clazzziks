@@ -28,6 +28,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -44,6 +45,11 @@ _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).with_name("templates")
 _TRACKS_DIR = Path(__file__).parents[2] / "tracks"
 
 api = APIRouter(prefix="/api")
+
+
+@api.get("/", response_class=HTMLResponse)
+async def docs():
+    return get_swagger_ui_html(openapi_url="/api/openapi.json", title="CLAZZZIKS API")
 
 
 @api.get("/health")

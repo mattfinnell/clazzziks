@@ -17,7 +17,7 @@ _YT_FUNCTIONAL = "https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM
 _SC_FUNCTIONAL = "https://soundcloud.com/mattfinnell/lockyear"
 _SC_DRM = "https://soundcloud.com/valante-music/ramo"
 _SPOTIFY = "https://open.spotify.com/track/5NP0ZS263MTgqgiyEwe1Ei"
-_SPREADSHEET = "https://docs.google.com/spreadsheets/d/1-6gWbrj5YGPcMN4Iah2t6LqyqUDPv3l5Ok-5TrNoHg8/edit?gid=0#gid=0"
+_SPREADSHEET = "https://docs.google.com/spreadsheets/d/10RrB0I_0g7bZGTjGCqo7X72BXoLrjRBcLLwmvTOD5bg/edit?gid=0#gid=0"
 
 
 # --- audio platform downloads -----------------------------------------------

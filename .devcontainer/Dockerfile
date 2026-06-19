@@ -10,3 +10,7 @@ RUN pip install --no-cache-dir \
     mutagen \
     requests \
     Pillow
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | env HOME=/home/vscode sh && \
+    ln -s /home/vscode/.local/bin/uv /usr/local/bin/uv && \
+    ln -s /home/vscode/.local/bin/uvx /usr/local/bin/uvx
