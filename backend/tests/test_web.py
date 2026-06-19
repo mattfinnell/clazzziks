@@ -17,7 +17,9 @@ from clazzziks.formats import AudioFormat
 from clazzziks.downloader import DownloadResult, DownloadUnavailableError
 from clazzziks.bundle import BundleResult
 
-from conftest import mimetype
+
+def mimetype(resp) -> str:
+    return resp.headers["content-type"].split(";")[0].strip()
 
 # Origin headers used to exercise CORS the way a browser would.
 _CORS = {"Origin": "http://localhost:5173"}
