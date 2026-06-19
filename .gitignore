@@ -43,3 +43,11 @@ Thumbs.db
 # Env / secrets
 .env
 .env.*
+
+# custom
+.notes
+
+# Local tooling / machine-specific
+.claude/
+.config-host/
+.ssh-localhost/
