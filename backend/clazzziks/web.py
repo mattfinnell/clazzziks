@@ -22,7 +22,6 @@ Routes:
 from __future__ import annotations
 
 import logging
-import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -42,6 +41,7 @@ from .logging_config import configure_logging, log_event
 logger = logging.getLogger(__name__)
 
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).with_name("templates")))
+_TRACKS_DIR = Path(__file__).parents[2] / "tracks"
 
 api = APIRouter(prefix="/api")
 
@@ -94,9 +94,9 @@ async def download(request: Request):
     try:
         if len(urls) == 1:
             fmt = _parse_format(payload.get("format"), default=AudioFormat.MP3)
-            return _serve_single(urls[0], fmt, bitrate)
+            return _serve_single(urls[0], fmt, bitrate, request_id)
         fmt = _parse_format(payload.get("format"), default=BUNDLE_FORMAT)
-        return _serve_bundle(urls, fmt, bitrate)
+        return _serve_bundle(urls, fmt, bitrate, request_id)
     except ValueError as exc:
         return _error(str(exc), 400)
     except DownloadUnavailableError as exc:
@@ -179,9 +179,9 @@ def _parse_bitrate(value) -> int:
         return DEFAULT_MP3_BITRATE
 
 
-def _serve_single(url: str, fmt: AudioFormat, bitrate: int):
-    tmp = tempfile.mkdtemp(prefix="clazzziks_web_")
-    result = download_audio(url, fmt=fmt, outdir=tmp, bitrate=bitrate)
+def _serve_single(url: str, fmt: AudioFormat, bitrate: int, request_id: str = ""):
+    outdir = _TRACKS_DIR / (request_id or uuid.uuid4().hex[:8])
+    result = download_audio(url, fmt=fmt, outdir=outdir, bitrate=bitrate)
     headers = {}
     if result.warnings:
         headers["X-Clazzziks-Warnings"] = " | ".join(result.warnings)
@@ -192,9 +192,9 @@ def _serve_single(url: str, fmt: AudioFormat, bitrate: int):
     )
 
 
-def _serve_bundle(urls: list[str], fmt: AudioFormat, bitrate: int):
-    tmp = tempfile.mkdtemp(prefix="clazzziks_web_")
-    result = download_bundle(urls, fmt=fmt, outdir=tmp, bitrate=bitrate)
+def _serve_bundle(urls: list[str], fmt: AudioFormat, bitrate: int, request_id: str = ""):
+    outdir = _TRACKS_DIR / (request_id or uuid.uuid4().hex[:8])
+    result = download_bundle(urls, fmt=fmt, outdir=outdir, bitrate=bitrate)
     notes = list(result.warnings) + [f"failed: {u}" for u, _ in result.failures]
     headers = {}
     if notes:

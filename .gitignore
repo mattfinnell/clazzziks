@@ -33,6 +33,10 @@ clazzziks_bundle*.zip
 out/
 downloads/
 
+# Persistent track output directory — keep the dir, ignore audio content
+backend/tracks/*
+!backend/tracks/.gitkeep
+
 # Node / frontend
 node_modules/
 frontend/dist/
