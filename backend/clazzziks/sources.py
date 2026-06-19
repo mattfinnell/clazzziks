@@ -32,7 +32,14 @@ _HOST_PATTERNS = {
 
 
 def detect_source(url: str) -> Source:
-    """Classify a URL by streaming platform."""
+    """Classify a URL by streaming platform.
+
+    yt-dlp search queries (``ytsearch1:...``) are treated as YouTube since
+    they are generated from sheet rows that lack a direct URL and are resolved
+    via YoutubeDownloader.
+    """
+    if url.lower().startswith("ytsearch"):
+        return Source.YOUTUBE
     host = (urlparse(url).hostname or "").lower()
     for source, patterns in _HOST_PATTERNS.items():
         if any(re.search(p, host) for p in patterns):

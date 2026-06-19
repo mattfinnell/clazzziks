@@ -21,7 +21,7 @@ from .formats import (
 )
 from .downloader import download_audio
 from .bundle import download_bundle
-from .inputs import collect_urls
+from .inputs import collect_urls, _GOOGLE_SHEETS_RE
 from .logging_config import configure_logging
 
 
@@ -89,9 +89,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        if args.batch:
-            return _run_batch(args)
-        return _run_single(args)
+        urls = collect_urls(args.input)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if not urls:
+        print("error: no links found in the supplied input.", file=sys.stderr)
+        return 1
+
+    is_sheet = bool(_GOOGLE_SHEETS_RE.match(args.input.strip()))
+    if is_sheet:
+        print(f"Fetched {len(urls)} link(s) from spreadsheet.", file=sys.stderr)
+
+    try:
+        if args.batch or len(urls) > 1:
+            return _run_batch(args, urls)
+        return _run_single(args, urls[0])
     except KeyboardInterrupt:
         print("\nAborted.", file=sys.stderr)
         return 130
@@ -100,11 +114,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _run_single(args) -> int:
+def _run_single(args, url: str) -> int:
     fmt = AudioFormat.parse(args.format) if args.format else AudioFormat.MP3
-    result = download_audio(
-        args.input, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate
-    )
+    result = download_audio(url, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
     for w in result.warnings:
         print(f"warning: {w}", file=sys.stderr)
     print(f"Downloaded [{result.source}] {result.title}")
@@ -112,13 +124,8 @@ def _run_single(args) -> int:
     return 0
 
 
-def _run_batch(args) -> int:
+def _run_batch(args, urls: list[str]) -> int:
     fmt = AudioFormat.parse(args.format) if args.format else BUNDLE_FORMAT
-    urls = collect_urls(args.input)
-    if not urls:
-        print("error: no links found in the supplied input.", file=sys.stderr)
-        return 1
-
     print(f"Found {len(urls)} link(s). Downloading as {fmt.value}...")
     result = download_bundle(urls, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
 

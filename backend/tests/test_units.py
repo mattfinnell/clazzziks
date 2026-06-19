@@ -19,7 +19,7 @@ from clazzziks.formats import (
     source_bitrate_warning,
 )
 from clazzziks.sources import detect_source, Source, looks_like_url
-from clazzziks.inputs import collect_urls, _google_sheet_csv_url
+from clazzziks.inputs import collect_urls, _google_sheet_csv_url, _parse_sheet_rows
 from clazzziks.downloader import (
     Downloader,
     YoutubeDownloader,
@@ -112,6 +112,45 @@ def test_google_sheet_csv_url():
     csv_url = _google_sheet_csv_url(url)
     assert "ABC123/export?format=csv" in csv_url
     assert "gid=42" in csv_url
+
+
+_SHEET_CSV = """\
+Soundcloud / Youtube Link,Song,Artist
+https://soundcloud.com/artist/beam,Beam,ISOxo
+https://www.youtube.com/watch?v=abc,Pop Off,Levity
+,Like this (Freaky mix),Levity x Nitti
+,Dominate,Space Laces
+,Just a song,
+"""
+
+
+def test_parse_sheet_rows_uses_urls_when_present():
+    results = _parse_sheet_rows(_SHEET_CSV)
+    assert "https://soundcloud.com/artist/beam" in results
+    assert "https://www.youtube.com/watch?v=abc" in results
+
+
+def test_parse_sheet_rows_generates_search_for_url_less_rows():
+    results = _parse_sheet_rows(_SHEET_CSV)
+    searches = [r for r in results if r.startswith("ytsearch1:")]
+    assert any("Like this (Freaky mix)" in s and "Levity x Nitti" in s for s in searches)
+    assert any("Dominate" in s and "Space Laces" in s for s in searches)
+
+
+def test_parse_sheet_rows_song_only_row_still_searched():
+    results = _parse_sheet_rows(_SHEET_CSV)
+    assert any("Just a song" in r for r in results)
+
+
+def test_parse_sheet_rows_falls_back_when_no_header():
+    no_header_csv = "https://soundcloud.com/a/b,https://youtu.be/xyz\n"
+    results = _parse_sheet_rows(no_header_csv)
+    assert "https://soundcloud.com/a/b" in results
+    assert "https://youtu.be/xyz" in results
+
+
+def test_detect_source_ytsearch_is_youtube():
+    assert detect_source("ytsearch1:Beam ISOxo audio") is Source.YOUTUBE
 
 
 # --- downloaders -----------------------------------------------------------
