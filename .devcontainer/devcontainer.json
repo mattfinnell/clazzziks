@@ -6,8 +6,18 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": true,
+      "configureZshAsDefaultShell": true,
+      "username": "vscode"
     }
   },
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh-localhost,type=bind,readonly",
+    "source=${localEnv:HOME}/.zshrc,target=/home/vscode/.zshrc,type=bind"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -21,10 +31,11 @@
         "editor.formatOnSave": true,
         "[python]": {
           "editor.defaultFormatter": "ms-python.black-formatter"
-        }
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh"
       }
     }
   },
-  "postCreateCommand": "npm install -g @anthropic-ai/claude-code && (pip install -e '.[dev]' 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true)",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
   "remoteUser": "vscode"
 }

@@ -43,3 +43,6 @@ Thumbs.db
 # Env / secrets
 .env
 .env.*
+
+# custom
+.notes
