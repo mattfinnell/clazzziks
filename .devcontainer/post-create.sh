@@ -31,6 +31,14 @@ if [ -f "$HOME/.ssh/known_hosts" ]; then
   chmod 644 "$HOME/.ssh/known_hosts"
 fi
 
+# --- Shell config ---------------------------------------------------------
+if [ -f "$HOME/.config-host/.zshrc" ]; then
+  echo "==> Installing host .zshrc"
+  cp "$HOME/.config-host/.zshrc" "$HOME/.zshrc"
+else
+  echo "==> No host .zshrc found (skipping)"
+fi
+
 # --- Git ------------------------------------------------------------------
 echo "==> Configuring git remote 'origin'"
 git config --global --add safe.directory /workspaces/clazzziks

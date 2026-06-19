@@ -14,9 +14,11 @@
       "username": "vscode"
     }
   },
+  "initializeCommand": "mkdir -p ${localEnv:HOME}/.devcontainer-tmp ${localEnv:HOME}/.claude && cp ${localEnv:HOME}/.zshrc ${localEnv:HOME}/.devcontainer-tmp/ 2>/dev/null || true",
   "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh-localhost,type=bind,readonly",
-    "source=${localEnv:HOME}/.zshrc,target=/home/vscode/.zshrc,type=bind"
+    "source=${localEnv:HOME}/.ssh,target=/workspaces/clazzziks/.ssh-localhost,type=bind,readonly",
+    "source=${localEnv:HOME}/.devcontainer-tmp,target=/workspaces/clazzziks/.config-host,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude,target=/workspaces/clazzziks/.claude,type=bind"
   ],
   "customizations": {
     "vscode": {
