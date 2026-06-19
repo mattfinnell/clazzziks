@@ -49,6 +49,26 @@ uv run pytest
 uv run pytest -m e2e -v
 ```
 
+The e2e suite has two layers: `test_e2e.py` exercises the downloader layer
+directly; `test_api_e2e.py` runs the same real downloads end-to-end through
+the HTTP API.
+
+## Logging
+
+Controlled via environment variables:
+
+| Variable | Values | Default |
+|---|---|---|
+| `CLAZZZIKS_LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / … | `INFO` |
+| `CLAZZZIKS_LOG_FORMAT` | `json` / `text` / `pretty` | `json` |
+
+`pretty` uses [Rich](https://github.com/Textualize/rich) for coloured,
+human-readable terminal output — recommended for local development:
+
+```bash
+CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload
+```
+
 ## Project structure
 
 ```
@@ -72,7 +92,8 @@ backend/
 │   ├── test_web.py         # API route tests (mocked downloaders)
 │   ├── test_contract.py    # openapi.json conformance tests
 │   ├── test_units.py       # unit tests
-│   └── test_e2e.py         # real-network e2e tests (pytest -m e2e)
+│   ├── test_e2e.py         # real-network downloader e2e tests (pytest -m e2e)
+│   └── test_api_e2e.py     # real-network HTTP API e2e tests (pytest -m e2e)
 ├── tracks/                 # runtime audio output (gitignored, kept via .gitkeep)
 ├── pyproject.toml
 └── uv.lock
@@ -82,6 +103,7 @@ backend/
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/api/` | Swagger UI (interactive docs) |
 | `GET` | `/api/health` | `{"status": "ok"}` |
 | `GET` | `/api/formats` | Supported formats + defaults |
 | `GET` | `/api/openapi.json` | Shared API contract document |

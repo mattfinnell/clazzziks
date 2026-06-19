@@ -7,7 +7,8 @@ Always prefix with `uv run` from `backend/`:
 ```bash
 uv run pytest                  # unit + contract tests
 uv run pytest -m e2e -v        # real-network e2e tests
-uv run clazzziks-web --reload  # dev server
+uv run clazzziks-web --reload  # dev server (JSON logs, default)
+CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload  # coloured dev logs
 ```
 
 ## Adding a new platform downloader
@@ -32,7 +33,8 @@ Never add a new route without updating the contract.
 ## Test patterns
 
 - **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_units.py`): use `monkeypatch` to mock `download_audio` / `download_bundle`. No network. These run by default.
-- **e2e tests** (`test_e2e.py`): hit real URLs. Mark with `@pytest.mark.e2e`. Use `tmp_path` as `outdir` — never write into `tracks/` from tests.
+- **Downloader e2e tests** (`test_e2e.py`): hit real URLs through the downloader layer directly. Mark with `@pytest.mark.e2e`. Use `tmp_path` as `outdir` — never write into `tracks/` from tests.
+- **API e2e tests** (`test_api_e2e.py`): hit real URLs through the full HTTP API stack (no mocking). Also marked `@pytest.mark.e2e`. Uses a `module`-scoped `live_client` fixture with a 300 s timeout to accommodate slow downloads.
 
 ## Audio quality rules
 
