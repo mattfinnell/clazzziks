@@ -42,10 +42,14 @@ Defined in `clazzziks/formats.py`:
 - If the source's actual bitrate (`info["abr"]`) is below 320 → `source_bitrate_warning()` warns that re-encoding won't recover quality.
 - Both warnings surface to the caller via `DownloadResult.warnings` and the `X-Clazzziks-Warnings` HTTP header.
 
+## Batch downloads
+
+`_run_batch` in `cli.py` downloads up to 4 tracks concurrently via `ThreadPoolExecutor` (`_BATCH_WORKERS = 4`). The Rich progress display shows one overall bar plus a per-slot spinner for each active download; completed slots are removed immediately. All result/failure collection is guarded by a `threading.Lock`.
+
 ## File output
 
 - Web server writes downloads to `tracks/<request_id>/` (one subdirectory per HTTP request, keyed by the 8-char observability request ID from `request.state.request_id`).
-- CLI writes to the directory passed via `-o/--outdir` (default: `.`).
+- CLI writes to the directory passed via `-o/--outdir` (default: `tracks/`).
 - `tracks/` is gitignored for audio content; the directory itself is kept via `.gitkeep`.
 
 ## Error hierarchy

@@ -31,18 +31,13 @@ uv run uvicorn clazzziks.web:app --reload
 ## CLI
 
 ```bash
-uv run clazzziks <url>                       # single track → mp3 320kbps
+uv run clazzziks <url>                       # single track → mp3 320kbps, saved to tracks/
 uv run clazzziks <url> -f wav -o ./out       # wav, custom output dir
-uv run clazzziks --batch links.txt -f flac   # batch → zip bundle
+uv run clazzziks --batch links.txt -f flac   # batch → 4 parallel downloads → zip bundle
+uv run clazzziks --batch "https://docs.google.com/spreadsheets/d/<id>/edit"
 ```
 
-Examples
-
-```bash
-uv run clazzziks https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM&index=2
-uv run clazzziks https://soundcloud.com/mattfinnell/lockyear
-uv run clazzziks https://docs.google.com/spreadsheets/d/1-6gWbrj5YGPcMN4Iah2t6LqyqUDPv3l5Ok-5TrNoHg8/edit?gid=0#gid=0 
-```
+Batch mode downloads up to 4 tracks in parallel and shows a live progress display with per-track spinners. Single-track mode saves to `tracks/` by default.
 
 ## Testing
 
@@ -100,12 +95,14 @@ The full contract is defined in `clazzziks/openapi.json`.
 |---|---|
 | MP3 | Default. 320kbps target; warns if source or requested bitrate is lower |
 | WAV | Lossless PCM |
-| FLAC | Lossless compressed; default for batch bundles |
+| FLAC | Lossless compressed; default for batch bundles; **recommended for best quality** |
+
+**Quality ceiling:** YouTube's best audio stream is ~160kbps Opus. Requesting 320kbps MP3 tells ffmpeg what to encode *to*, but re-encoding a 160kbps source does not recover quality — it just inflates the file. Use FLAC to avoid a second generation of lossy compression. `source_bitrate_warning()` surfaces this to the user automatically.
 
 ## Platform notes
 
 | Platform | Strategy | Known limitation |
 |---|---|---|
-| YouTube | Direct yt-dlp download | Private/members-only videos |
+| YouTube | Direct yt-dlp download | CDN returns 403 in headless/cookie-less environments; max source quality ~160kbps Opus |
 | SoundCloud | Direct yt-dlp download | Many tracks are AES/DRM-encrypted and cannot be downloaded |
-| Spotify | Resolves track metadata → YouTube search → yt-dlp | Quality depends on YouTube match |
+| Spotify | Resolves track metadata → YouTube search → yt-dlp | Quality capped by the YouTube match |

@@ -18,10 +18,10 @@ sends permissive CORS headers so the two can run on separate origins if needed.
 ## Quick start (both halves)
 
 ```bash
-# 1. Backend  (terminal A)
+# 1. Backend  (terminal A — needs uv and ffmpeg on PATH)
 cd backend
-pip install -r requirements.txt        # needs ffmpeg on PATH
-python -m clazzziks.web --port 5000
+uv sync --extra dev
+uv run clazzziks-web --port 5000
 
 # 2. Frontend (terminal B)
 cd frontend
@@ -42,29 +42,31 @@ Point the proxy elsewhere with `VITE_API_TARGET=http://host:port npm run dev`.
 ## Requirements
 
 - Python 3.10+
+- [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - `ffmpeg` on your `PATH`
 
 ```bash
 cd backend
-pip install -r requirements.txt   # or: pip install -e .
+uv sync --extra dev
 ```
 
 ## CLI
 
 ```bash
 cd backend
-# Single link -> one audio file
-python -m clazzziks "https://youtu.be/<id>"                 # MP3 320 by default
-python -m clazzziks "https://youtu.be/<id>" -f wav -o ./out
+# Single link -> one audio file (saved to tracks/ by default)
+uv run clazzziks "https://youtu.be/<id>"                    # MP3 320 by default
+uv run clazzziks "https://youtu.be/<id>" -f wav -o ./out
 
-# Many links -> one lossless (FLAC) ZIP bundle
-python -m clazzziks --batch links.txt -f flac -o ./out
-python -m clazzziks --batch "https://docs.google.com/spreadsheets/d/<id>/edit"
+# Many links -> 4 parallel downloads -> one FLAC ZIP bundle
+uv run clazzziks --batch links.txt -f flac -o ./out
+uv run clazzziks --batch "https://docs.google.com/spreadsheets/d/<id>/edit"
 ```
 
-Batch input accepts a text file (one URL per line), a CSV file, inline text, or
-a **public** Google Sheets URL. After `pip install -e .` the `clazzziks` and
-`clazzziks-web` commands are available directly.
+Batch mode downloads up to 4 tracks simultaneously with a live per-track progress
+display. Input accepts a text file (one URL per line), a CSV, inline text, or a
+**public** Google Sheets URL. After `uv sync` the `clazzziks` and `clazzziks-web`
+commands are available directly.
 
 ## Web utility (React frontend)
 
@@ -103,19 +105,23 @@ the backend's live responses against it, so the two halves can't silently drift.
 
 ## Formats & quality
 
-| Format | Lossless | Notes                              |
-|--------|----------|------------------------------------|
-| WAV    | yes      | uncompressed                       |
-| FLAC   | yes      | default for bundles                |
-| MP3    | no       | 320kbps default; warns below 320   |
+| Format | Lossless | Notes                                         |
+|--------|----------|-----------------------------------------------|
+| WAV    | yes      | uncompressed                                  |
+| FLAC   | yes      | default for bundles; recommended for quality  |
+| MP3    | no       | 320kbps default; warns below 320              |
 
 MP3 requests below 320kbps, and sources whose real bitrate can't reach 320kbps,
-produce warnings (CLI stderr / API response header).
+produce warnings (CLI output / API `X-Clazzziks-Warnings` header).
+
+**Quality ceiling:** YouTube serves audio at ~160kbps Opus. Requesting 320kbps
+MP3 sets the *encoding target* — re-encoding a 160kbps source does not recover
+quality. Use FLAC to preserve the source without a second lossy transcode.
 
 ## Tests
 
 ```bash
 cd backend
-pip install -e ".[dev]"   # pytest + jsonschema (contract validation)
-python -m pytest          # offline: unit, web API, and contract tests
+uv run pytest                # offline: unit, web API, and contract tests
+uv run pytest -m e2e -v      # real-network end-to-end tests (requires ffmpeg + network)
 ```
