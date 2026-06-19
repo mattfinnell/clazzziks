@@ -81,6 +81,7 @@ The FastAPI backend also serves a minimal no-build fallback form at `/`.
 ## HTTP API
 
 ```
+GET  /api/              -> Swagger UI (interactive docs)
 GET  /api/health        -> {"status":"ok"}
 GET  /api/openapi.json  -> the shared API contract (see below)
 GET  /api/formats       -> supported formats + defaults (drives the UI)
@@ -125,3 +126,6 @@ cd backend
 uv run pytest                # offline: unit, web API, and contract tests
 uv run pytest -m e2e -v      # real-network end-to-end tests (requires ffmpeg + network)
 ```
+
+The e2e suite has two layers: `test_e2e.py` exercises the downloader directly;
+`test_api_e2e.py` runs the same real downloads through the full HTTP API stack.

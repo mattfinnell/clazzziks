@@ -5,8 +5,19 @@ set -u
 
 echo "==> Installing tooling"
 npm install -g @anthropic-ai/claude-code || true
-# The Python package lives in backend/; install it (with dev extras for tests).
-pip install -e './backend[dev]' 2>/dev/null || pip install -r backend/requirements.txt 2>/dev/null || true
+
+# Ensure uv is on PATH (installed to /usr/local/bin via Dockerfile symlink).
+# If somehow missing (e.g. plain pip-based rebuild), install it now.
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+# Persist PATH for interactive shells if not already set.
+grep -qF '.local/bin' "$HOME/.zshrc" 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+grep -qF '.local/bin' "$HOME/.bashrc" 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+
+# The Python package lives in backend/; install it with dev extras via uv.
+cd backend && uv sync --extra dev && cd ..
 
 # --- SSH ------------------------------------------------------------------
 # The host's keys are bind-mounted read-only at ~/.ssh-localhost. Copy them to
@@ -32,12 +43,10 @@ if [ -f "$HOME/.ssh/known_hosts" ]; then
 fi
 
 # --- Shell config ---------------------------------------------------------
-if [ -f "$HOME/.config-host/.zshrc" ]; then
-  echo "==> Installing host .zshrc"
-  cp "$HOME/.config-host/.zshrc" "$HOME/.zshrc"
-else
-  echo "==> No host .zshrc found (skipping)"
-fi
+# ~/.zshrc-host is a live bind-mount of the host's ~/.zshrc. Source it from
+# within the container's ~/.zshrc so every shell start picks up host config.
+echo "==> Wiring host .zshrc"
+grep -qF 'zshrc-host' "$HOME/.zshrc" || echo '[ -f ~/.zshrc-host ] && source ~/.zshrc-host' >> "$HOME/.zshrc"
 
 # --- Git ------------------------------------------------------------------
 echo "==> Configuring git remote 'origin'"

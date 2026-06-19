@@ -10,7 +10,10 @@ can never clash with reserved :class:`logging.LogRecord` attributes.
 
 Configuration via environment (overridable per call):
     CLAZZZIKS_LOG_LEVEL   - DEBUG/INFO/WARNING/... (default INFO)
-    CLAZZZIKS_LOG_FORMAT  - "json" (default) or "text"
+    CLAZZZIKS_LOG_FORMAT  - "json" (default), "text", or "pretty"
+
+``pretty`` uses Rich for coloured, human-readable terminal output (ideal for
+local dev). ``json`` is the default and is suited for log aggregators.
 """
 
 from __future__ import annotations
@@ -62,12 +65,17 @@ def configure_logging(
         level = level.upper()
     fmt = (fmt or os.getenv("CLAZZZIKS_LOG_FORMAT", "json")).lower()
 
-    handler = logging.StreamHandler(stream)
-    if fmt == "text":
+    if fmt == "pretty":
+        from rich.logging import RichHandler  # rich is a project dependency
+        handler = RichHandler(rich_tracebacks=True, stream=stream)
+        handler.setFormatter(logging.Formatter("%(message)s", datefmt="[%X]"))
+    elif fmt == "text":
+        handler = logging.StreamHandler(stream)
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
     else:
+        handler = logging.StreamHandler(stream)
         handler.setFormatter(JsonFormatter())
 
     logger = logging.getLogger(ROOT_LOGGER)
