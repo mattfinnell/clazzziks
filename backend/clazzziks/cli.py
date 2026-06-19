@@ -11,7 +11,21 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
+import time
+
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
+from rich.table import Table
 
 from .formats import (
     AudioFormat,
@@ -19,10 +33,11 @@ from .formats import (
     DEFAULT_MP3_BITRATE,
     BUNDLE_FORMAT,
 )
-from .downloader import download_audio
-from .bundle import download_bundle
+from .downloader import download_audio, DownloadResult, DownloadUnavailableError
 from .inputs import collect_urls, _GOOGLE_SHEETS_RE
 from .logging_config import configure_logging
+
+_console = Console()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch",
         action="store_true",
-        help="Treat input as many links and produce a single ZIP bundle.",
+        help="Treat input as many links and download each one.",
     )
     parser.add_argument(
         "-f",
@@ -85,59 +100,121 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging(level=_log_level(args.verbose))
 
     if not args.input:
-        print("error: no link(s) provided. See --help.", file=sys.stderr)
+        _console.print("[red]error:[/] no link(s) provided. See --help.")
         return 2
 
     try:
         urls = collect_urls(args.input)
     except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        _console.print(f"[red]error:[/] {exc}")
         return 1
 
     if not urls:
-        print("error: no links found in the supplied input.", file=sys.stderr)
+        _console.print("[red]error:[/] no links found in the supplied input.")
         return 1
 
     is_sheet = bool(_GOOGLE_SHEETS_RE.match(args.input.strip()))
     if is_sheet:
-        print(f"Fetched {len(urls)} link(s) from spreadsheet.", file=sys.stderr)
+        _console.print(f"[dim]Fetched {len(urls)} link(s) from spreadsheet.[/]")
 
     try:
         if args.batch or len(urls) > 1:
             return _run_batch(args, urls)
         return _run_single(args, urls[0])
     except KeyboardInterrupt:
-        print("\nAborted.", file=sys.stderr)
+        _console.print("\n[yellow]Aborted.[/]")
         return 130
-    except Exception as exc:  # noqa: BLE001 - top-level user-facing error
-        print(f"error: {exc}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        _console.print(f"[red]error:[/] {exc}")
         return 1
 
 
 def _run_single(args, url: str) -> int:
     fmt = AudioFormat.parse(args.format) if args.format else AudioFormat.MP3
-    result = download_audio(url, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
+
+    started = time.perf_counter()
+    try:
+        with _console.status("[bold cyan]Downloading…[/]", spinner="dots"):
+            result = download_audio(url, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
+    except DownloadUnavailableError as exc:
+        _console.print(f"[red]✗  Unavailable:[/] {exc}")
+        return 1
+    elapsed = time.perf_counter() - started
+
+    bitrate_tag = f"  {args.bitrate}kbps" if result.fmt is AudioFormat.MP3 else ""
+    lines = [
+        f"[bold green]✓[/]  [bold]{result.title}[/]",
+        f"    [dim]Source[/]  {result.source}",
+        f"    [dim]Format[/]  {result.fmt.value.upper()}{bitrate_tag}",
+        f"    [dim]Time[/]    {elapsed:.1f}s",
+        f"    [dim]Path[/]    {result.path}",
+    ]
     for w in result.warnings:
-        print(f"warning: {w}", file=sys.stderr)
-    print(f"Downloaded [{result.source}] {result.title}")
-    print(f"  -> {result.path}")
+        lines.append(f"    [yellow]⚠  {w}[/]")
+
+    _console.print(Panel("\n".join(lines), title="[bold cyan]clazzziks[/]", expand=False))
+    # Plain path to stdout for scripting (e.g. piping to another tool).
+    print(str(result.path))
     return 0
 
 
 def _run_batch(args, urls: list[str]) -> int:
     fmt = AudioFormat.parse(args.format) if args.format else BUNDLE_FORMAT
-    print(f"Found {len(urls)} link(s). Downloading as {fmt.value}...")
-    result = download_bundle(urls, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
 
-    for w in result.warnings:
-        print(f"warning: {w}", file=sys.stderr)
-    for url, err in result.failures:
-        print(f"failed: {url}: {err}", file=sys.stderr)
+    items: list[DownloadResult] = []
+    failures: list[tuple[str, str]] = []
+    all_warnings: list[str] = []
+    started = time.perf_counter()
 
-    print(f"Bundled {len(result.items)} file(s) -> {result.path}")
-    if result.failures:
-        print(f"  ({len(result.failures)} link(s) failed)")
-    return 0
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=_console,
+    ) as progress:
+        task = progress.add_task("[cyan]Downloading", total=len(urls))
+        for i, url in enumerate(urls, 1):
+            progress.update(task, description=f"[cyan]Downloading [{i}/{len(urls)}]")
+            try:
+                result = download_audio(url, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
+                items.append(result)
+                all_warnings.extend(f"{result.title}: {w}" for w in result.warnings)
+            except DownloadUnavailableError as exc:
+                failures.append((url, str(exc)))
+            except Exception as exc:  # noqa: BLE001
+                failures.append((url, str(exc)))
+            progress.advance(task)
+
+    elapsed = time.perf_counter() - started
+
+    table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=False)
+    table.add_column("", width=3)
+    table.add_column("Title")
+    table.add_column("Source", width=12)
+    table.add_column("Path / Error")
+
+    for r in items:
+        table.add_row("[green]✓[/]", r.title, r.source, str(r.path))
+    for url, err in failures:
+        short = url if len(url) <= 55 else url[:52] + "…"
+        table.add_row("[red]✗[/]", short, "—", f"[red]{err}[/]")
+
+    _console.print(table)
+
+    for w in all_warnings:
+        _console.print(f"  [yellow]⚠  {w}[/]")
+
+    _console.print(
+        f"\n  [bold]Downloaded[/] {len(items)}/{len(urls)}  "
+        f"[bold]Failed[/] {len(failures)}  "
+        f"[bold]Format[/] {fmt.value.upper()}  "
+        f"[bold]Time[/] {elapsed:.1f}s"
+    )
+
+    return 0 if not failures else 1
 
 
 if __name__ == "__main__":
