@@ -56,8 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o",
         "--outdir",
-        default=".",
-        help="Output directory (default: current directory).",
+        default="tracks",
+        help="Output directory (default: tracks/).",
     )
     parser.add_argument(
         "-v",
