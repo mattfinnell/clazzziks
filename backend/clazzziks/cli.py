@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from rich import box
 from rich.console import Console
@@ -152,19 +154,24 @@ def _run_single(args, url: str) -> int:
     for w in result.warnings:
         lines.append(f"    [yellow]⚠  {w}[/]")
 
-    _console.print(Panel("\n".join(lines), title="[bold cyan]clazzziks[/]", expand=False))
+    _console.print(Panel("\n".join(lines), title="[bold hot_pink]CLAZZZIKS[/]", expand=False))
     # Plain path to stdout for scripting (e.g. piping to another tool).
     print(str(result.path))
     return 0
 
 
+_BATCH_WORKERS = 4
+
+
 def _run_batch(args, urls: list[str]) -> int:
     fmt = AudioFormat.parse(args.format) if args.format else BUNDLE_FORMAT
+    max_workers = min(_BATCH_WORKERS, len(urls))
 
     items: list[DownloadResult] = []
     failures: list[tuple[str, str]] = []
     all_warnings: list[str] = []
     started = time.perf_counter()
+    _lock = threading.Lock()
 
     with Progress(
         SpinnerColumn(),
@@ -175,18 +182,31 @@ def _run_batch(args, urls: list[str]) -> int:
         TimeElapsedColumn(),
         console=_console,
     ) as progress:
-        task = progress.add_task("[cyan]Downloading", total=len(urls))
-        for i, url in enumerate(urls, 1):
-            progress.update(task, description=f"[cyan]Downloading [{i}/{len(urls)}]")
+        overall = progress.add_task(
+            f"[cyan]Downloading  [dim](×{max_workers} parallel)[/]",
+            total=len(urls),
+        )
+
+        def _dl(url: str) -> None:
+            short = url if len(url) <= 60 else url[:57] + "…"
+            slot = progress.add_task(f"  [dim]↳ {short}[/]", total=None)
             try:
                 result = download_audio(url, fmt=fmt, outdir=args.outdir, bitrate=args.bitrate)
-                items.append(result)
-                all_warnings.extend(f"{result.title}: {w}" for w in result.warnings)
+                with _lock:
+                    items.append(result)
+                    all_warnings.extend(f"{result.title}: {w}" for w in result.warnings)
             except DownloadUnavailableError as exc:
-                failures.append((url, str(exc)))
+                with _lock:
+                    failures.append((url, str(exc)))
             except Exception as exc:  # noqa: BLE001
-                failures.append((url, str(exc)))
-            progress.advance(task)
+                with _lock:
+                    failures.append((url, str(exc)))
+            finally:
+                progress.remove_task(slot)
+                progress.advance(overall)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            list(executor.map(_dl, urls))
 
     elapsed = time.perf_counter() - started
 

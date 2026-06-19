@@ -6,7 +6,7 @@ keeping both sides honest. Validation uses the schemas declared in the contract
 itself, so changing the contract automatically changes what's enforced here.
 """
 
-# pylint: disable=missing-function-docstring,redefined-outer-name
+# pylint: disable=missing-function-docstring,redefined-outer-name,wrong-import-position
 
 import pytest
 
@@ -43,8 +43,8 @@ def test_contract_is_a_valid_openapi_document():
 
 def test_contract_schemas_are_themselves_valid_json_schema():
     # Catch typos in the hand-written contract (bad keywords, etc.).
-    for name, schema in load_contract()["components"]["schemas"].items():
-        jsonschema.Draft202012Validator.check_schema(schema), name
+    for _, schema in load_contract()["components"]["schemas"].items():
+        jsonschema.Draft202012Validator.check_schema(schema)
 
 
 def test_contract_served_matches_packaged_document(client):

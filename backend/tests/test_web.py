@@ -82,7 +82,7 @@ def test_download_rejects_unsupported_format(client):
 def test_download_single_returns_file_with_headers(client, tmp_path, monkeypatch):
     audio = _make_file(tmp_path, "Song [id].mp3")
 
-    def fake_download_audio(url, *, fmt, outdir, bitrate):
+    def fake_download_audio(_url, **_kwargs):
         return DownloadResult(
             path=audio, title="Song", source="youtube",
             fmt=AudioFormat.MP3, warnings=["low bitrate"],
@@ -130,7 +130,7 @@ def test_download_single_unexpected_error_is_502(client, monkeypatch):
 def test_download_bundle_returns_zip_with_failure_warnings(client, tmp_path, monkeypatch):
     archive = _make_file(tmp_path, "clazzziks_bundle.zip", b"PK\x03\x04zip")
 
-    def fake_bundle(urls, *, fmt, outdir, bitrate):
+    def fake_bundle(_urls, **_kwargs):
         return BundleResult(
             path=archive,
             warnings=["Track A: low bitrate"],

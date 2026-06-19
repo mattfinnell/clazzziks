@@ -36,6 +36,14 @@ uv run clazzziks <url> -f wav -o ./out       # wav, custom output dir
 uv run clazzziks --batch links.txt -f flac   # batch → zip bundle
 ```
 
+Examples
+
+```bash
+uv run clazzziks https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM&index=2
+uv run clazzziks https://soundcloud.com/mattfinnell/lockyear
+uv run clazzziks https://docs.google.com/spreadsheets/d/1-6gWbrj5YGPcMN4Iah2t6LqyqUDPv3l5Ok-5TrNoHg8/edit?gid=0#gid=0 
+```
+
 ## Testing
 
 ```bash

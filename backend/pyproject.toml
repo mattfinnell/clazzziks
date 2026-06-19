@@ -51,3 +51,11 @@ markers = [
 # Resolve first-party imports (clazzziks.*) when linting from the backend root,
 # the same way pytest puts the package on sys.path.
 source-roots = ["."]
+
+[tool.pylint.MESSAGES_CONTROL]
+disable = [
+    "C0115",  # missing-class-docstring  — project policy: no docstrings
+    "C0116",  # missing-function-docstring — project policy: no docstrings
+    "C0301",  # line-too-long — URLs / long strings in tests are fine
+    "W0718",  # broad-exception-caught — intentional catch-all in CLI/bundle
+]
