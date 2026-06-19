@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import zipfile
@@ -10,6 +11,9 @@ from pathlib import Path
 
 from .downloader import download_audio, DownloadResult
 from .formats import AudioFormat, BUNDLE_FORMAT, DEFAULT_MP3_BITRATE
+from .logging_config import log_event
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,22 +52,55 @@ def download_bundle(
             f"format (FLAC/WAV) for bundles."
         )
 
+    log_event(
+        logger, 
+        logging.INFO, 
+        "bundle.start", 
+        count=len(urls), 
+        format=fmt.value
+    )
+
     with tempfile.TemporaryDirectory(prefix="clazzziks_") as tmp:
         for url in urls:
             try:
                 result = download_audio(url, fmt=fmt, outdir=tmp, bitrate=bitrate)
                 items.append(result)
                 warnings.extend(f"{result.title}: {w}" for w in result.warnings)
+                
             except Exception as exc:  # noqa: BLE001 - record and continue the batch
                 failures.append((url, str(exc)))
+                log_event(
+                    logger, 
+                    logging.WARNING, 
+                    "bundle.item_failed",
+                    url=url, 
+                    error=str(exc),
+                )
 
         if not items:
+            log_event(
+                logger, 
+                logging.ERROR, 
+                "bundle.empty",
+                count=len(urls), 
+                failures=len(failures),
+            )
+
             raise RuntimeError(
                 "No audio could be downloaded from the supplied links. "
                 + ("; ".join(f"{u}: {e}" for u, e in failures) if failures else "")
             )
 
         _write_zip(bundle_path, items)
+
+    log_event(
+        logger, 
+        logging.INFO, 
+        "bundle.complete",
+        items=len(items), 
+        failures=len(failures), 
+        path=str(bundle_path),
+    )
 
     return BundleResult(
         path=bundle_path, items=items, failures=failures, warnings=warnings
@@ -86,4 +123,5 @@ def _unique_arcname(name: str, used: set[str]) -> str:
         candidate = f"{stem} ({n}){dot}{ext}" if dot else f"{name} ({n})"
         n += 1
     used.add(candidate)
+
     return candidate

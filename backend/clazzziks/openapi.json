@@ -1,0 +1,185 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CLAZZZIKS API",
+    "version": "0.1.0",
+    "description": "The shared contract between the CLAZZZIKS backend (FastAPI) and frontend (React).\nThis document is the single source of truth for the `/api` surface. The backend\nserves it at `GET /api/openapi.json` and its responses are validated against the\nschemas here by `backend/tests/test_contract.py`. The frontend client\n(`frontend/src/api.js`) builds against these same shapes."
+  },
+  "servers": [
+    { "url": "/api", "description": "Mounted under /api (Vite proxies this to the FastAPI server in dev)." }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Liveness probe.",
+        "responses": {
+          "200": {
+            "description": "Service is up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Health" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenapi",
+        "summary": "This contract document.",
+        "responses": {
+          "200": {
+            "description": "The OpenAPI contract.",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    },
+    "/formats": {
+      "get": {
+        "operationId": "getFormats",
+        "summary": "Supported formats and defaults that drive the UI.",
+        "responses": {
+          "200": {
+            "description": "Format configuration.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FormatsConfig" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/download": {
+      "post": {
+        "operationId": "postDownload",
+        "summary": "Download one audio file (single link) or a ZIP bundle (many links).",
+        "description": "Pass one link to get a single transcoded audio file. Pass multiple links\n(newline / comma / whitespace separated, or a public Google Sheets URL that\nexpands to many) to get a lossless-compression ZIP bundle.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/DownloadRequest" }
+            },
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/DownloadRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The audio file or ZIP bundle as an attachment.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"...\" — the client derives the saved filename from this.",
+                "schema": { "type": "string" }
+              },
+              "X-Clazzziks-Warnings": {
+                "description": "Optional ` | `-separated quality warnings and per-link failures (bundle).",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "audio/mpeg": { "schema": { "type": "string", "format": "binary" } },
+              "audio/wav": { "schema": { "type": "string", "format": "binary" } },
+              "audio/flac": { "schema": { "type": "string", "format": "binary" } },
+              "application/zip": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "400": {
+            "description": "Invalid input (no links, no valid links, or unsupported format).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "422": {
+            "description": "The track exists but cannot be downloaded (DRM, geo-block, removed).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "502": {
+            "description": "Unexpected download/transcode failure.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AudioFormat": {
+        "type": "string",
+        "enum": ["wav", "mp3", "flac"],
+        "description": "Tolerable output formats per the project spec."
+      },
+      "Health": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "const": "ok" }
+        }
+      },
+      "FormatsConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "formats",
+          "default_format",
+          "bundle_format",
+          "default_bitrate",
+          "bitrates"
+        ],
+        "properties": {
+          "formats": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AudioFormat" },
+            "minItems": 1
+          },
+          "default_format": { "$ref": "#/components/schemas/AudioFormat" },
+          "bundle_format": { "$ref": "#/components/schemas/AudioFormat" },
+          "default_bitrate": { "type": "integer", "minimum": 1 },
+          "bitrates": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "minItems": 1
+          }
+        }
+      },
+      "DownloadRequest": {
+        "type": "object",
+        "required": ["links"],
+        "properties": {
+          "links": {
+            "type": "string",
+            "description": "One or more links: a single URL, many URLs (newline/comma/space separated), or a public Google Sheets URL.",
+            "minLength": 1
+          },
+          "format": {
+            "$ref": "#/components/schemas/AudioFormat",
+            "description": "Output format. Defaults to mp3 for a single link, flac for a bundle."
+          },
+          "bitrate": {
+            "type": "integer",
+            "description": "MP3 bitrate in kbps (ignored for lossless formats). Defaults to 320.",
+            "minimum": 1
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

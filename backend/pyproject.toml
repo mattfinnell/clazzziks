@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clazzziks"
+version = "0.1.0"
+description = "Audio downloader for YouTube, SoundCloud and Spotify (WAV/MP3/FLAC)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2026.6.9",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "jinja2>=3.1",
+    "requests>=2.31",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# Tooling for running the test suite: httpx powers FastAPI's TestClient and
+# jsonschema validates responses against the shared openapi.json contract.
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "jsonschema>=4.0",
+]
+
+[project.scripts]
+clazzziks = "clazzziks.cli:main"
+clazzziks-web = "clazzziks.web:main"
+
+[tool.setuptools.packages.find]
+include = ["clazzziks*"]
+
+[tool.setuptools.package-data]
+clazzziks = ["templates/*.html", "openapi.json"]
+
+[tool.pytest.ini_options]
+# Put the backend root on sys.path so `import clazzziks` resolves regardless of
+# the directory pytest is invoked from (mirrors pylint's source-roots below).
+# This pyproject also anchors pytest's rootdir to backend/, so `.` is backend/.
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "e2e: real-network end-to-end tests (deselect with '-m not e2e')",
+]
+
+[tool.pylint.MAIN]
+# Resolve first-party imports (clazzziks.*) when linting from the backend root,
+# the same way pytest puts the package on sys.path.
+source-roots = ["."]
+
+[tool.pylint.MESSAGES_CONTROL]
+disable = [
+    "C0115",  # missing-class-docstring  — project policy: no docstrings
+    "C0116",  # missing-function-docstring — project policy: no docstrings
+    "C0301",  # line-too-long — URLs / long strings in tests are fine
+    "W0718",  # broad-exception-caught — intentional catch-all in CLI/bundle
+]

@@ -59,7 +59,60 @@ def _from_google_sheet(url: str, *, timeout: float) -> list[str]:
             f"Could not fetch Google Sheet as CSV ({csv_url!r}). "
             f"Make sure the sheet is shared as 'anyone with the link'. Error: {exc}"
         ) from exc
-    return _extract_from_csv(resp.text)
+    return _parse_sheet_rows(resp.text)
+
+
+# Keywords matched against lowercased header cell text to locate columns.
+_URL_HEADER_HINTS = ("link", "url", "soundcloud", "youtube")
+_SONG_HEADER_HINTS = ("song", "track", "title", "name")
+_ARTIST_HEADER_HINTS = ("artist", "author", "by")
+
+
+def _parse_sheet_rows(raw_csv: str) -> list[str]:
+    """Parse a structured sheet CSV into a mix of URLs and yt-dlp search queries.
+
+    Detects a header row (no cell looks like a URL) and maps columns to URL,
+    Song, and Artist roles. Rows that have a URL use it directly. Rows with
+    Song + Artist but no URL become a ``ytsearch1:`` query handled by
+    YoutubeDownloader. Falls back to plain URL extraction when no header is
+    recognised.
+    """
+    reader = list(csv.reader(io.StringIO(raw_csv)))
+    if not reader:
+        return []
+
+    header = reader[0]
+    if any(looks_like_url(cell.strip()) for cell in header):
+        # No recognisable header row — fall back to extracting URLs from all cells.
+        return _extract_from_csv(raw_csv)
+
+    url_col = song_col = artist_col = -1
+    for i, cell in enumerate(header):
+        key = cell.strip().lower()
+        if url_col < 0 and any(h in key for h in _URL_HEADER_HINTS):
+            url_col = i
+        elif song_col < 0 and any(h in key for h in _SONG_HEADER_HINTS):
+            song_col = i
+        elif artist_col < 0 and any(h in key for h in _ARTIST_HEADER_HINTS):
+            artist_col = i
+
+    def _cell(row: list[str], idx: int) -> str:
+        return row[idx].strip() if 0 <= idx < len(row) else ""
+
+    results: list[str] = []
+    for row in reader[1:]:
+        url = _cell(row, url_col)
+        if looks_like_url(url):
+            results.append(url)
+            continue
+
+        song = _cell(row, song_col)
+        artist = _cell(row, artist_col)
+        if song:
+            query = f"{song} {artist}".strip()
+            results.append(f"ytsearch1:{query} audio")
+
+    return results
 
 
 def _google_sheet_csv_url(url: str) -> str:

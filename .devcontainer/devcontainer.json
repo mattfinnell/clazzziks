@@ -26,7 +26,8 @@
         "ms-python.python",
         "ms-python.black-formatter",
         "ms-python.pylint",
-        "Anthropic.claude-code"
+        "Anthropic.claude-code",
+        "sukumo28.wav-preview"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",

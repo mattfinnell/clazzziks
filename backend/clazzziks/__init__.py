@@ -6,7 +6,16 @@ Public API:
 """
 
 from .formats import AudioFormat, SUPPORTED_FORMATS, DEFAULT_MP3_BITRATE
-from .downloader import download_audio, DownloadResult
+from .downloader import (
+    download_audio,
+    downloader_for,
+    DownloadResult,
+    DownloadUnavailableError,
+    Downloader,
+    YoutubeDownloader,
+    SoundcloudDownloader,
+    SpotifyDownloader,
+)
 from .bundle import download_bundle, BundleResult
 
 __all__ = [
@@ -14,7 +23,13 @@ __all__ = [
     "SUPPORTED_FORMATS",
     "DEFAULT_MP3_BITRATE",
     "download_audio",
+    "downloader_for",
     "DownloadResult",
+    "DownloadUnavailableError",
+    "Downloader",
+    "YoutubeDownloader",
+    "SoundcloudDownloader",
+    "SpotifyDownloader",
     "download_bundle",
     "BundleResult",
 ]
