@@ -12,16 +12,10 @@ export default function TopNav({ page, onNav }: Props) {
       <span className="top-nav__brand">CLAZZZIKS</span>
       <div className="top-nav__links">
         <button
-          className={`top-nav__link${page === 'home' ? ' top-nav__link--active' : ''}`}
-          onClick={() => onNav('home')}
+          className={`top-nav__link${page === 'Downloader' ? ' top-nav__link--active' : ''}`}
+          onClick={() => onNav('Downloader')}
         >
-          Home
-        </button>
-        <button
-          className={`top-nav__link${page === 'download' ? ' top-nav__link--active' : ''}`}
-          onClick={() => onNav('download')}
-        >
-          Download
+          Downloader
         </button>
       </div>
     </nav>
