@@ -19,7 +19,7 @@
     "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh-localhost,type=bind,readonly",
     "source=${localEnv:HOME}/.devcontainer-tmp,target=/workspaces/clazzziks/.config-host,type=bind,readonly",
     "source=${localEnv:HOME}/.claude,target=/workspaces/clazzziks/.claude,type=bind",
-    "source=${localEnv:HOME}/.zshrc,target=/home/vscode/.zshrc,type=bind,readonly"
+    "source=${localEnv:HOME}/.zshrc,target=/home/vscode/.zshrc-host,type=bind,readonly"
   ],
   "customizations": {
     "vscode": {
