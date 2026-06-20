@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchConfig, requestDownload, saveBlob } from './api.js'
+import { fetchConfig, requestDownload, saveBlob, type Config } from '../api'
+import './Downloader.scss'
 
-const FALLBACK_CONFIG = {
+const FALLBACK_CONFIG: Config = {
   formats: ['wav', 'mp3', 'flac'],
   default_format: 'mp3',
   bundle_format: 'flac',
@@ -9,13 +10,20 @@ const FALLBACK_CONFIG = {
   default_bitrate: 320,
 }
 
-export default function App() {
-  const [config, setConfig] = useState(FALLBACK_CONFIG)
-  const [backendOk, setBackendOk] = useState(null)
+type StatusKind = 'idle' | 'working' | 'ok' | 'warn' | 'error'
+
+interface Status {
+  kind: StatusKind
+  text: string
+}
+
+export default function Downloader() {
+  const [config, setConfig] = useState<Config>(FALLBACK_CONFIG)
+  const [backendOk, setBackendOk] = useState<boolean | null>(null)
   const [links, setLinks] = useState('')
   const [format, setFormat] = useState(FALLBACK_CONFIG.default_format)
   const [bitrate, setBitrate] = useState(FALLBACK_CONFIG.default_bitrate)
-  const [status, setStatus] = useState({ kind: 'idle', text: '' })
+  const [status, setStatus] = useState<Status>({ kind: 'idle', text: '' })
 
   useEffect(() => {
     fetchConfig()
@@ -35,7 +43,7 @@ export default function App() {
   const isBundle = linkCount > 1
   const busy = status.kind === 'working'
 
-  async function onSubmit(e) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!links.trim()) {
       setStatus({ kind: 'error', text: 'Paste at least one link.' })
@@ -51,21 +59,21 @@ export default function App() {
           : { kind: 'ok', text: `Downloaded ${filename}` },
       )
     } catch (err) {
-      setStatus({ kind: 'error', text: `Error: ${err.message}` })
+      setStatus({ kind: 'error', text: `Error: ${(err as Error).message}` })
     }
   }
 
   return (
-    <div className="page">
-      <div className="card">
-        <header className="head">
-          <h1>CLAZZZIKS</h1>
+    <div className="downloader">
+      <div className="downloader__card">
+        <header className="downloader__head">
+          <h1>Download</h1>
           <BackendDot ok={backendOk} />
         </header>
-        <p className="sub">
-          Paste one link for a single file, or many links (newlines, CSV text, or a
-          public Google Sheets URL) for a lossless{' '}
-          <strong>{config.bundle_format?.toUpperCase()}</strong> ZIP bundle.
+        <p className="downloader__sub">
+          Paste one link for a single file, or many links (newlines, CSV text, or a public Google
+          Sheets URL) for a lossless <strong>{config.bundle_format?.toUpperCase()}</strong> ZIP
+          bundle.
         </p>
 
         <form onSubmit={onSubmit}>
@@ -74,15 +82,19 @@ export default function App() {
             id="links"
             value={links}
             onChange={(e) => setLinks(e.target.value)}
-            placeholder={'https://youtu.be/...\nhttps://soundcloud.com/...\nhttps://open.spotify.com/track/...'}
+            placeholder={
+              'https://youtu.be/...\nhttps://soundcloud.com/...\nhttps://open.spotify.com/track/...'
+            }
           />
 
-          <div className="row">
+          <div className="downloader__row">
             <div>
               <label htmlFor="format">Format</label>
               <select id="format" value={format} onChange={(e) => setFormat(e.target.value)}>
                 {config.formats.map((f) => (
-                  <option key={f} value={f}>{f.toUpperCase()}</option>
+                  <option key={f} value={f}>
+                    {f.toUpperCase()}
+                  </option>
                 ))}
               </select>
             </div>
@@ -95,7 +107,9 @@ export default function App() {
                 onChange={(e) => setBitrate(Number(e.target.value))}
               >
                 {config.bitrates.map((b) => (
-                  <option key={b} value={b}>{b}</option>
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
                 ))}
               </select>
             </div>
@@ -106,17 +120,17 @@ export default function App() {
           </button>
         </form>
 
-        <p className={`note ${status.kind}`}>{status.text}</p>
+        <p className={`downloader__note downloader__note--${status.kind}`}>{status.text}</p>
       </div>
     </div>
   )
 }
 
-function BackendDot({ ok }) {
+function BackendDot({ ok }: { ok: boolean | null }) {
   const label = ok === null ? 'checking backend…' : ok ? 'backend online' : 'backend offline'
   const cls = ok === null ? 'checking' : ok ? 'online' : 'offline'
   return (
-    <span className={`dot ${cls}`} title={label}>
+    <span className={`downloader__dot downloader__dot--${cls}`} title={label}>
       <i /> {label}
     </span>
   )

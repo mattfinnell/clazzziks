@@ -11,8 +11,8 @@ backend/    Python package (yt-dlp + ffmpeg core, CLI, FastAPI API) + tests
 frontend/   React + Vite web utility that talks to the backend over /api
 ```
 
-The frontend calls the backend only through `/api`. In development the Vite
-dev server proxies `/api` to FastAPI (no CORS/port juggling); the backend also
+The frontend calls the backend only through `/api`. In development the Vite dev
+server proxies `/api` to FastAPI (no CORS/port juggling); the backend also
 sends permissive CORS headers so the two can run on separate origins if needed.
 
 ## Quick start (both halves)
@@ -25,11 +25,11 @@ uv run clazzziks-web --port 5000
 
 # 2. Frontend (terminal B)
 cd frontend
-npm install
-npm run dev                            # http://localhost:5173
+pnpm install
+pnpm dev                               # http://localhost:5173
 ```
 
-Point the proxy elsewhere with `VITE_API_TARGET=http://host:port npm run dev`.
+Point the proxy elsewhere with `VITE_API_TARGET=http://host:port pnpm dev`.
 
 ## How it works
 
@@ -70,11 +70,13 @@ commands are available directly.
 
 ## Web utility (React frontend)
 
-The frontend (`frontend/`) is a Vite + React single-page app. Run the backend
-and `npm run dev` (see Quick start), then open http://localhost:5173. It fetches
-the supported formats from the backend, detects single-vs-bundle from the link
-count, shows backend health, and surfaces quality warnings. `npm run build`
-emits static assets to `frontend/dist/` for hosting behind any web server.
+The frontend (`frontend/`) is a Vite + React single-page app written in
+TypeScript + SCSS. Run the backend and `pnpm dev` (see Quick start), then open
+http://localhost:5173. A top nav switches between the landing page and the
+download UI. The download page fetches supported formats from the backend,
+detects single-vs-bundle from the link count, shows backend health, and
+surfaces quality warnings. `pnpm build` emits static assets to `frontend/dist/`
+for hosting behind any web server.
 
 The FastAPI backend also serves a minimal no-build fallback form at `/`.
 
@@ -100,7 +102,7 @@ Quality warnings are returned in the `X-Clazzziks-Warnings` response header.
 
 `backend/clazzziks/openapi.json` (OpenAPI 3.1) is the **single source of truth**
 for the `/api` surface shared by the backend and the React frontend. The backend
-serves it at `/api/openapi.json`; the frontend client (`frontend/src/api.js`)
+serves it at `/api/openapi.json`; the frontend client (`frontend/src/api.ts`)
 builds against the same shapes; and `backend/tests/test_contract.py` validates
 the backend's live responses against it, so the two halves can't silently drift.
 
