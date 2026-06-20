@@ -40,6 +40,11 @@
       }
     }
   },
+  "forwardPorts": [5173, 5000],
+  "portsAttributes": {
+    "5173": { "label": "Vite dev server" },
+    "5000": { "label": "FastAPI backend" }
+  },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "remoteUser": "vscode"
 }
