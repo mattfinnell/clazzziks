@@ -1,27 +1,42 @@
-// Thin client for the CLAZZZIKS backend API (proxied at /api in dev).
-//
-// The request/response shapes here follow the shared API contract, which is the
-// single source of truth for both backend and frontend:
-//   backend/clazzziks/openapi.json  (served live at `${API_BASE}/openapi.json`)
-// The backend's responses are validated against it in tests/test_contract.py.
-
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
-export async function fetchConfig() {
+export interface Config {
+  formats: string[]
+  default_format: string
+  bundle_format: string
+  bitrates: number[]
+  default_bitrate: number
+}
+
+export async function fetchConfig(): Promise<Config> {
   const resp = await fetch(`${API_BASE}/formats`)
   if (!resp.ok) throw new Error(`Backend unavailable (${resp.status})`)
   return resp.json()
 }
 
-// Fetch the shared OpenAPI contract the backend serves (single source of truth).
-export async function fetchContract() {
+export async function fetchContract(): Promise<unknown> {
   const resp = await fetch(`${API_BASE}/openapi.json`)
   if (!resp.ok) throw new Error(`Contract unavailable (${resp.status})`)
   return resp.json()
 }
 
-// Returns { filename, blob, warnings }. Throws Error(message) on failure.
-export async function requestDownload({ links, format, bitrate }) {
+interface DownloadParams {
+  links: string
+  format: string
+  bitrate: number
+}
+
+interface DownloadResult {
+  filename: string
+  blob: Blob
+  warnings: string | null
+}
+
+export async function requestDownload({
+  links,
+  format,
+  bitrate,
+}: DownloadParams): Promise<DownloadResult> {
   const body = new URLSearchParams({ links, format, bitrate: String(bitrate) })
   const resp = await fetch(`${API_BASE}/download`, { method: 'POST', body })
 
@@ -41,14 +56,13 @@ export async function requestDownload({ links, format, bitrate }) {
   return { filename: filenameFromResponse(resp), blob, warnings }
 }
 
-function filenameFromResponse(resp) {
+function filenameFromResponse(resp: Response): string {
   const disposition = resp.headers.get('Content-Disposition') || ''
   const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i)
   return match ? decodeURIComponent(match[1]) : 'clazzziks-download'
 }
 
-// Trigger a browser "Save as" for a blob received from the API.
-export function saveBlob(blob, filename) {
+export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

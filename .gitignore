@@ -37,13 +37,10 @@ downloads/
 backend/tracks/*
 !backend/tracks/.gitkeep
 
-# Node / frontend
+# Node / frontend (details handled in frontend/.gitignore)
 node_modules/
-frontend/dist/
-frontend/.vite/
-npm-debug.log*
-yarn-error.log*
-*.local
+.pnpm-store/
+pnpm-debug.log*
 
 # Editor / OS
 .vscode/
@@ -56,10 +53,8 @@ Thumbs.db
 .env
 .env.*
 
-# custom
-.notes
-
 # Local tooling / machine-specific
 .claude/
 .config-host/
 .ssh-localhost/
+.notes

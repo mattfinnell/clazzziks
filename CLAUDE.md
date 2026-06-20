@@ -6,7 +6,7 @@ Audio downloader supporting YouTube, SoundCloud, and Spotify. Outputs MP3, WAV, 
 
 ```
 backend/    Python core (yt-dlp + ffmpeg), FastAPI API, CLI
-frontend/   React + Vite web utility
+frontend/   React + Vite web utility (TypeScript, SCSS, pnpm)
 ```
 
 All backend work lives in `backend/` and uses `uv`. See `backend/CLAUDE.md` for conventions.

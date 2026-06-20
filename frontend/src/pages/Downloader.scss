@@ -1,0 +1,123 @@
+.downloader {
+  min-height: calc(100vh - 56px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+
+  &__card {
+    width: min(640px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: 1px;
+    }
+  }
+
+  &__sub {
+    margin: 6px 0 20px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    color: #aeb4c0;
+    margin: 14px 0 6px;
+  }
+
+  textarea,
+  select {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid #2c313d;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+
+  textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+
+  &__row {
+    display: flex;
+    gap: 14px;
+
+    > div {
+      flex: 1;
+    }
+  }
+
+  select:disabled {
+    opacity: 0.5;
+  }
+
+  button {
+    margin-top: 20px;
+    width: 100%;
+    padding: 13px;
+    border: 0;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6d5efc, #4f8cff);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+  }
+
+  &__note {
+    margin-top: 14px;
+    font-size: 13px;
+    min-height: 18px;
+    line-height: 1.5;
+
+    &--error { color: #ff8b8b; }
+    &--ok    { color: #8bff9e; }
+    &--warn  { color: #ffd27a; }
+    &--working { color: var(--muted); }
+    &--idle  { color: transparent; }
+  }
+
+  &__dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+
+    i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    &--online  i { background: #44d07b; }
+    &--offline i { background: #ff6b6b; }
+    &--checking i { background: #ffd27a; }
+  }
+}
