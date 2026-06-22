@@ -10,6 +10,41 @@ pnpm build     # static bundle -> dist/
 pnpm preview   # serve the production build locally
 ```
 
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_API_TARGET` | `http://localhost:5000` | Backend the Vite dev server proxies `/api` to |
+| `VITE_API_BASE` | `/api` | API base path used by the browser client at runtime; set to a full URL to call a backend on a different origin (CORS is enabled server-side) |
+
+```bash
+# Point the dev proxy at a remote backend
+VITE_API_TARGET=http://staging-alb.example.com npm run dev
+
+# Call a different-origin API in the built app
+VITE_API_BASE=http://staging-alb.example.com/api npm run build
+```
+
+## Source files
+
+- `src/api.js` — backend client (`fetchConfig`, `fetchContract`, `requestDownload`,
+  `saveBlob`). Parses `X-Clazzziks-Warnings` from response headers and triggers
+  a browser file-save on download.
+- `src/App.jsx` — the UI: link textarea, format/bitrate selectors,
+  single-vs-bundle detection, backend health indicator, warning display.
+
+## Production build (for AWS deploy)
+
+The CDK stack (`infra/`) bundles `frontend/dist/` into S3 during `cdk deploy`.
+Build the frontend before deploying:
+
+```bash
+cd frontend && npm install && npm run build
+cd ../infra  && npx cdk deploy Staging/Clazzziks
+```
+
+The built app calls `/api/*` using relative paths, which CloudFront routes to
+the ALB — no per-environment API URL configuration is needed.
 Environment overrides:
 
 - `VITE_API_TARGET` — backend the dev server proxies `/api` to (default `http://localhost:5000`).

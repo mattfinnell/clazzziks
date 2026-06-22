@@ -6,6 +6,7 @@ set -u
 echo "==> Installing tooling"
 npm install -g @anthropic-ai/claude-code || true
 corepack enable pnpm || npm install -g pnpm || true
+npm install -g aws-cdk || true
 
 # Ensure uv is on PATH (installed to /usr/local/bin via Dockerfile symlink).
 # If somehow missing (e.g. plain pip-based rebuild), install it now.
@@ -19,6 +20,9 @@ grep -qF '.local/bin' "$HOME/.bashrc" 2>/dev/null || echo 'export PATH="$HOME/.l
 
 # The Python package lives in backend/; install it with dev extras via uv.
 cd backend && uv sync --extra dev && cd ..
+
+# Install CDK project dependencies.
+cd infra && npm install && cd ..
 
 # --- SSH ------------------------------------------------------------------
 # The host's keys are bind-mounted read-only at ~/.ssh-localhost. Copy them to

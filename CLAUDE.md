@@ -6,10 +6,13 @@ Audio downloader supporting YouTube, SoundCloud, and Spotify. Outputs MP3, WAV, 
 
 ```
 backend/    Python core (yt-dlp + ffmpeg), FastAPI API, CLI
-frontend/   React + Vite web utility (TypeScript, SCSS, pnpm)
+frontend/   React + Vite web utility
+infra/      AWS CDK (TypeScript) — staging and production stacks
+Dockerfile  Container image for the FastAPI backend (used by CDK)
 ```
 
 All backend work lives in `backend/` and uses `uv`. See `backend/CLAUDE.md` for conventions.
+All infrastructure work lives in `infra/`. See `infra/CLAUDE.md` for conventions.
 
 ## Auth
 

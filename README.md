@@ -9,6 +9,8 @@ web utility, a CLI, or a small HTTP API.
 ```
 backend/    Python package (yt-dlp + ffmpeg core, CLI, FastAPI API) + tests
 frontend/   React + Vite web utility that talks to the backend over /api
+infra/      AWS CDK (TypeScript) — staging and production stacks
+Dockerfile  Container image for the FastAPI backend (used by CDK)
 ```
 
 The frontend calls the backend only through `/api`. In development the Vite dev
@@ -39,8 +41,8 @@ on both halves — see [Authentication](#authentication).
 - **YouTube / SoundCloud** are downloaded directly with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
   and transcoded with `ffmpeg`.
 - **Spotify** streams are DRM-protected and cannot be downloaded. CLAZZZIKS reads
-  the track's public metadata and finds the matching recording on YouTube (the
-  same approach `spotdl` uses).
+  the track's public metadata via the Spotify oEmbed endpoint and finds the
+  matching recording on YouTube (the same approach `spotdl` uses).
 
 ## Requirements
 
@@ -153,7 +155,7 @@ keys are meant to ship in client bundles; access is controlled by Auth rules.
 
 | Format | Lossless | Notes                                         |
 |--------|----------|-----------------------------------------------|
-| WAV    | yes      | uncompressed                                  |
+| WAV    | yes      | uncompressed PCM                              |
 | FLAC   | yes      | default for bundles; recommended for quality  |
 | MP3    | no       | 320kbps default; warns below 320              |
 
@@ -174,3 +176,26 @@ uv run pytest -m e2e -v      # real-network end-to-end tests (requires ffmpeg + 
 
 The e2e suite has two layers: `test_e2e.py` exercises the downloader directly;
 `test_api_e2e.py` runs the same real downloads through the full HTTP API stack.
+
+## Deploy to AWS
+
+The `infra/` directory contains an AWS CDK (TypeScript) project that provisions
+the production stack (`Production-Clazzziks`):
+
+- **ECS Fargate** — FastAPI container (includes ffmpeg); 2 vCPU / 4 GB; 2 tasks
+  for HA; 21 GiB ephemeral storage per task for in-flight downloads
+- **ALB** — public HTTP load balancer; 300 s idle timeout; health-checks `/api/health`
+- **S3 + CloudFront** — React SPA served from S3 via CloudFront; `/api/*`
+  routed to the ALB (60 s CloudFront read timeout — see `ApiDirectUrl` output
+  for direct ALB access on slow downloads)
+
+Prerequisites: Docker, Node.js 18+, AWS CLI configured, CDK CLI (`npm i -g aws-cdk`).
+
+```bash
+cd frontend && npm install && npm run build   # build React first
+cd ../infra && npm install
+npx cdk bootstrap                             # once per account/region
+npx cdk deploy Production/Clazzziks
+```
+
+See `infra/README.md` for the full CDK command reference.

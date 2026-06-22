@@ -37,10 +37,14 @@ downloads/
 backend/tracks/*
 !backend/tracks/.gitkeep
 
-# Node / frontend (details handled in frontend/.gitignore)
-node_modules/
+# Node / frontend
 .pnpm-store/
-pnpm-debug.log*
+**/node_modules/
+**/frontend/dist/
+**/frontend/.vite/
+**/npm-debug.log*
+**/yarn-error.log*
+**/*.local
 
 # Editor / OS
 .vscode/
