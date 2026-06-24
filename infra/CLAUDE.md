@@ -1,59 +1,69 @@
 # Infra — Claude Instructions
 
-AWS CDK (TypeScript) project. All infra work lives in `infra/`.
+Pulumi (TypeScript) project. All infra work lives in `infra/`.
 
 ## Running commands
 
-Always run CDK from `infra/`:
+Always run from `infra/`. Select a stack before previewing or deploying:
 
 ```bash
 cd infra
-npx cdk ls                           # list stacks
-npx cdk diff Staging/Clazzziks       # preview changes (staging)
-npx cdk diff Production/Clazzziks    # preview changes (production)
-npx cdk synth Production/Clazzziks   # emit CloudFormation (no deploy)
-npx cdk deploy Production/Clazzziks  # deploy
+pulumi stack ls                        # list stacks
+pulumi stack select staging            # switch to staging
+pulumi stack select production         # switch to production
+
+pulumi preview                         # preview changes
+pulumi up                              # deploy
+pulumi destroy                         # tear down
+pulumi stack output siteUrl            # print a specific output
 ```
 
-TypeScript must compile before CDK can run. If you see type errors, fix them
-before deploying — `npx cdk synth` will catch them.
+TypeScript must compile before Pulumi can run. If you see type errors, fix them
+first — `pulumi preview` will catch them.
 
 ## File layout
 
 | File | Purpose |
 |---|---|
-| `lib/config.ts` | `EnvConfig` interface + `STAGING` / `PRODUCTION` values |
-| `lib/clazzziks-stage.ts` | `cdk.Stage` wrapper — groups the stack under a named stage |
-| `lib/clazzziks-stack.ts` | All AWS resources: EC2, EIP, EBS, S3, CloudFront |
-| `bin/infra.ts` | CDK app entry — instantiates both Staging and Production stages |
+| `index.ts` | All AWS resources: ECR, VPC, EC2, EIP, EBS, S3, CloudFront |
+| `Pulumi.yaml` | Pulumi project config |
+| `Pulumi.staging.yaml` | Staging stack config (t3.micro, ephemeral bucket) |
+| `Pulumi.production.yaml` | Production stack config (t3.small, retained bucket) |
 
 ## Changing environment sizing
 
-Edit `lib/config.ts`. The `EnvConfig` interface documents every field. Changes
-take effect on the next `cdk deploy`.
+Edit the relevant `Pulumi.<env>.yaml` file. Changes take effect on the next
+`pulumi up`. The config keys are:
+
+| Key | Staging | Production |
+|---|---|---|
+| `clazzziks:instanceType` | `t3.micro` | `t3.small` |
+| `clazzziks:retainBucket` | `false` | `true` |
 
 ## Adding a new AWS resource
 
-Add it to `lib/clazzziks-stack.ts`. If it needs environment-specific values
-(different sizes, retention, etc.) add the field to `EnvConfig` in `config.ts`
-and set values in both `STAGING` and `PRODUCTION`.
+Add it to `index.ts`. If it needs environment-specific values, read them from
+`pulumi.Config` and set them in both `Pulumi.staging.yaml` and
+`Pulumi.production.yaml`.
 
 ## Key constraints
 
-- **CloudFront read timeout** is hard-capped at 180 seconds by CDK. Downloads
-  that take longer must hit the Elastic IP directly over HTTP.
-- **nginx** is configured to proxy port 80 → localhost:8000 with 300 s
-  `proxy_read_timeout` and `proxy_send_timeout`. The full nginx config is
-  written to `/etc/nginx/nginx.conf` by the EC2 user data script on first boot.
+- **CloudFront read timeout** is hard-capped at 180 seconds. Downloads that take
+  longer must hit the Elastic IP directly over HTTP (`elasticIp` stack output).
+- **nginx** proxies port 80 → localhost:8000 with 300 s `proxy_read_timeout` and
+  `proxy_send_timeout`. The full nginx config is written by the EC2 user data
+  script on first boot.
 - **EBS device name** — t3 instances are Nitro-based; the OS sees the 50 GiB
-  data volume as `/dev/nvme1n1` (not `/dev/xvdf`). The user data waits for
-  the device to appear before formatting it.
-- **ECR image** — `DockerImageAsset` in `clazzziks-stack.ts` builds and pushes
-  the `Dockerfile` at the repo root to a CDK-managed ECR repository. Docker
-  must be running locally for `cdk deploy` (or `cdk synth`) to succeed.
-- **Frontend must be built before deploying** — `cdk deploy` bundles
-  `frontend/dist/` into S3 via `BucketDeployment`. Run
-  `cd frontend && pnpm build` first.
-- **Production S3 bucket uses `RETAIN`** — `cdk destroy Production/Clazzziks`
-  will not delete the bucket. Empty and delete it manually via the AWS console
-  or CLI if you truly want a clean teardown.
+  data volume as `/dev/nvme1n1` (not `/dev/xvdf`). The user data polls for the
+  device before formatting it.
+- **ECR image** — `awsx.ecr.Image` in `index.ts` builds and pushes the
+  `Dockerfile` at the repo root. Docker must be running locally for `pulumi up`
+  to succeed.
+- **Frontend must be built before deploying** — `pulumi up` syncs `frontend/dist/`
+  to S3. Run `cd frontend && pnpm build` first.
+- **CloudFront cache invalidation is manual** — after deploying a new frontend,
+  run: `aws cloudfront create-invalidation --distribution-id <id> --paths '/*'`
+  (the `distributionId` stack output has the ID).
+- **Production S3 bucket uses `retainOnDelete`** — `pulumi destroy` on the
+  production stack will not delete the bucket. Empty and delete it manually via
+  the AWS console or CLI if you truly want a clean teardown.

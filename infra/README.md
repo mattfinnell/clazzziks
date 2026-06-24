@@ -1,6 +1,6 @@
 # CLAZZZIKS — Infrastructure
 
-AWS CDK (TypeScript) project that provisions the CLAZZZIKS audio downloader on AWS.
+Pulumi (TypeScript) project that provisions the CLAZZZIKS audio downloader on AWS.
 
 ## Architecture
 
@@ -13,29 +13,28 @@ CloudFront distribution
 
 - **EC2 t3.small / t3.micro** — Amazon Linux 2023 instance running the FastAPI
   backend inside Docker. On first boot the user data script installs Docker,
-  pulls the image from ECR, installs nginx, and wires everything up via
-  systemd. Staging uses a `t3.micro`; production uses a `t3.small`.
+  pulls the image from ECR, installs nginx, and wires everything up.
+  Staging uses a `t3.micro`; production uses a `t3.small`.
 - **EBS 50 GiB gp3** — attached at `/data`; used as ffmpeg scratch space.
   Downloaded audio is written here and streamed back in the same request.
-- **Elastic IP** — stable public IPv4 address associated with the instance.
-  CloudFront uses it as the `/api/*` HTTP origin.
+- **Elastic IP** — stable public IPv4 address. CloudFront uses it as the
+  `/api/*` HTTP origin.
 - **S3 + CloudFront** — the React SPA is uploaded from `frontend/dist/`; the
-  distribution is invalidated on every deploy. Unknown paths (403 / 404) return
-  `index.html` so the SPA can handle its own routing.
-- **ECR repository** — CDK builds the `Dockerfile` at the repo root and pushes
-  the image automatically on each `cdk deploy`.
+  distribution serves it over HTTPS. 403/404s return `index.html` so the SPA
+  handles its own routing.
+- **ECR repository** — Pulumi builds the `Dockerfile` at the repo root and
+  pushes the image automatically on each `pulumi up`.
 
-> **CloudFront timeout note:** CDK enforces a 180-second maximum for CloudFront
-> custom-origin read timeouts. Downloads that take longer should hit the EC2
-> Elastic IP directly over HTTP (`ElasticIpOutput` CloudFormation output).
+> **CloudFront timeout note:** CloudFront enforces a 180-second maximum read
+> timeout. Downloads that take longer should hit the Elastic IP directly
+> (`elasticIp` stack output).
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
+- [Pulumi CLI](https://www.pulumi.com/docs/install/): `curl -fsSL https://get.pulumi.com | sh`
 - [AWS CLI](https://aws.amazon.com/cli/) configured (`aws configure`)
-- [AWS CDK CLI](https://docs.aws.amazon.com/cdk/latest/guide/cli.html):
-  `npm i -g aws-cdk`
-- Docker (used by CDK to build and push the backend container image)
+- Docker (used by Pulumi to build and push the backend container image)
 
 ## Setup
 
@@ -47,53 +46,66 @@ npm install
 ## Deploy
 
 ```bash
-# Build the React app first — CDK bundles frontend/dist/ into S3
+# Build the React app first — Pulumi syncs frontend/dist/ to S3
 cd frontend && pnpm install && pnpm build && cd ..
 
-# One-time bootstrap per AWS account + region
-cd infra && npx cdk bootstrap
+# One-time: create stacks (skip if they already exist)
+cd infra
+pulumi stack init staging
+pulumi stack init production
 
 # Deploy
-npx cdk deploy Production/Clazzziks
+pulumi stack select production
+pulumi up
 ```
 
-Each deploy prints three outputs:
+Each deploy exposes three stack outputs:
 
 | Output | Description |
 |---|---|
-| `SiteUrl` | CloudFront HTTPS URL — use this for normal access |
-| `ElasticIpOutput` | EC2 Elastic IP (HTTP) — use this if a download exceeds the 180 s CF timeout |
-| `DistributionId` | CloudFront distribution ID (for manual cache invalidations) |
+| `siteUrl` | CloudFront HTTPS URL — use this for normal access |
+| `elasticIp` | EC2 Elastic IP (HTTP) — use this if a download exceeds the 180 s CF timeout |
+| `distributionId` | CloudFront distribution ID (for cache invalidations) |
+
+After deploying a new frontend build, invalidate the CloudFront cache:
+
+```bash
+aws cloudfront create-invalidation \
+  --distribution-id $(pulumi stack output distributionId) \
+  --paths '/*'
+```
 
 ## Tear down
 
 ```bash
-npx cdk destroy Production/Clazzziks
-# The S3 bucket uses RETAIN — empty and delete it manually via the AWS console or CLI.
+pulumi stack select staging
+pulumi destroy
+
+# Production S3 bucket uses retainOnDelete — empty and delete it manually
+# via the AWS console or CLI before running destroy.
+pulumi stack select production
+pulumi destroy
 ```
 
 ## Project structure
 
 ```
 infra/
-├── bin/
-│   └── infra.ts            # CDK app entry point (Staging + Production stages)
-├── lib/
-│   ├── config.ts           # EnvConfig interface + STAGING / PRODUCTION values
-│   ├── clazzziks-stage.ts  # cdk.Stage wrapper
-│   └── clazzziks-stack.ts  # all AWS resources (EC2, EIP, EBS, S3, CloudFront)
-├── cdk.json                # CDK app config + feature flags
+├── index.ts                # all AWS resources (ECR, VPC, EC2, EIP, S3, CloudFront)
+├── Pulumi.yaml             # Pulumi project config
+├── Pulumi.staging.yaml     # staging stack config
+├── Pulumi.production.yaml  # production stack config
 ├── package.json
 └── tsconfig.json
 ```
 
-## Useful CDK commands
+## Useful Pulumi commands
 
 ```bash
-npx cdk ls                           # list all stacks
-npx cdk diff Staging/Clazzziks       # show pending changes (staging)
-npx cdk diff Production/Clazzziks    # show pending changes (production)
-npx cdk synth Production/Clazzziks   # emit CloudFormation template (no deploy)
-npx cdk deploy Production/Clazzziks  # deploy
-npx cdk destroy Production/Clazzziks # tear down
+pulumi stack ls                        # list all stacks
+pulumi stack select staging            # switch to staging
+pulumi preview                         # show pending changes
+pulumi up                              # deploy
+pulumi destroy                         # tear down
+pulumi stack output siteUrl            # print a specific output
 ```

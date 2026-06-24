@@ -9,8 +9,8 @@ web utility, a CLI, or a small HTTP API.
 ```
 backend/    Python package (yt-dlp + ffmpeg core, CLI, FastAPI API) + tests
 frontend/   React + Vite web utility that talks to the backend over /api
-infra/      AWS CDK (TypeScript) — staging and production stacks
-Dockerfile  Container image for the FastAPI backend (used by CDK)
+infra/      Pulumi (TypeScript) — EC2, S3, CloudFront, ECR
+Dockerfile  Container image for the FastAPI backend (used by Pulumi/ECR)
 ```
 
 The frontend calls the backend only through `/api`. In development the Vite dev
@@ -179,23 +179,19 @@ The e2e suite has two layers: `test_e2e.py` exercises the downloader directly;
 
 ## Deploy to AWS
 
-The `infra/` directory contains an AWS CDK (TypeScript) project that provisions
-the production stack (`Production-Clazzziks`):
+The `infra/` directory is a Pulumi (TypeScript) project that provisions the
+stack: EC2 (Amazon Linux 2023, Docker + nginx), Elastic IP, 50 GiB EBS scratch
+volume, S3 + CloudFront for the React SPA, and an ECR repository for the backend
+image. Staging uses a t3.micro; production uses a t3.small.
 
-- **ECS Fargate** — FastAPI container (includes ffmpeg); 2 vCPU / 4 GB; 2 tasks
-  for HA; 21 GiB ephemeral storage per task for in-flight downloads
-- **ALB** — public HTTP load balancer; 300 s idle timeout; health-checks `/api/health`
-- **S3 + CloudFront** — React SPA served from S3 via CloudFront; `/api/*`
-  routed to the ALB (60 s CloudFront read timeout — see `ApiDirectUrl` output
-  for direct ALB access on slow downloads)
-
-Prerequisites: Docker, Node.js 18+, AWS CLI configured, CDK CLI (`npm i -g aws-cdk`).
+Prerequisites: Docker, Node.js 18+, AWS CLI configured, Pulumi CLI
+(see https://www.pulumi.com/docs/install/).
 
 ```bash
-cd frontend && npm install && npm run build   # build React first
-cd ../infra && npm install
-npx cdk bootstrap                             # once per account/region
-npx cdk deploy Production/Clazzziks
+cd frontend && pnpm install && pnpm build   # build React first
+cd infra && npm install
+pulumi stack select production
+pulumi up
 ```
 
-See `infra/README.md` for the full CDK command reference.
+See `infra/README.md` for the full command reference and stack outputs.
