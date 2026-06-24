@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/api.ts","./src/firebase.ts","./src/main.tsx","./src/vite-env.d.ts","./src/auth/AuthContext.tsx","./src/components/AuthBar.tsx","./src/components/Login.tsx","./src/pages/Downloader.tsx"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/api.ts","./src/firebase.ts","./src/main.tsx","./src/vite-env.d.ts","./src/auth/AuthContext.tsx","./src/components/AsciiLogo.tsx","./src/components/AuthBar.tsx","./src/components/Login.tsx","./src/pages/Downloader.tsx"],"version":"5.9.3"}

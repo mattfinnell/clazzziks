@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { fetchConfig, requestDownload, saveBlob, type Config } from '../api'
+import AsciiLogo from '../components/AsciiLogo'
 import './Downloader.scss'
 
 const FALLBACK_CONFIG: Config = {
@@ -43,72 +44,75 @@ export default function Downloader() {
 
   return (
     <div className="downloader">
-      <div className="downloader__card">
-        <header className="downloader__head">
-          <div>
-            <p className="downloader__brand">CLAZZZIKS</p>
-            <h1>Download</h1>
-          </div>
-          <BackendDot status={configQuery.status} />
-        </header>
-        <p className="downloader__sub">
-          Paste one link for a single file, or many links (newlines, CSV text, or a public Google
-          Sheets URL) for a lossless <strong>{config.bundle_format?.toUpperCase()}</strong> ZIP
-          bundle.
-        </p>
+      <div className="downloader__window">
+        <div className="downloader__titlebar">
+          <span>guest@clazzziks: ~/download</span>
+          <BackendStatus status={configQuery.status} />
+        </div>
 
-        <form onSubmit={onSubmit}>
-          <label htmlFor="links">Link(s)</label>
-          <textarea
-            id="links"
-            value={links}
-            onChange={(e) => setLinks(e.target.value)}
-            placeholder={
-              'https://youtu.be/...\nhttps://soundcloud.com/...\nhttps://open.spotify.com/track/...'
-            }
+        <div className="downloader__body">
+          <AsciiLogo tagline="audio extraction terminal" />
+
+          <p className="downloader__sub">
+            &gt; paste one link for a single file, or many (newlines, CSV, or a public Google
+            Sheets URL) for a lossless <strong>{config.bundle_format?.toUpperCase()}</strong> ZIP
+            bundle.
+          </p>
+
+          <form onSubmit={onSubmit}>
+            <label htmlFor="links">link(s)</label>
+            <textarea
+              id="links"
+              value={links}
+              spellCheck={false}
+              onChange={(e) => setLinks(e.target.value)}
+              placeholder={
+                'https://youtu.be/...\nhttps://soundcloud.com/...\nhttps://open.spotify.com/track/...'
+              }
+            />
+
+            <div className="downloader__row">
+              <div>
+                <label htmlFor="format">format</label>
+                <select id="format" value={activeFormat} onChange={(e) => setFormat(e.target.value)}>
+                  {config.formats.map((f) => (
+                    <option key={f} value={f}>
+                      {f.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="bitrate">mp3 bitrate [kbps]</label>
+                <select
+                  id="bitrate"
+                  value={activeBitrate}
+                  disabled={activeFormat !== 'mp3'}
+                  onChange={(e) => setBitrate(Number(e.target.value))}
+                >
+                  {config.bitrates.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button type="submit" disabled={download.isPending}>
+              {download.isPending ? 'EXECUTING…' : isBundle ? `FETCH BUNDLE x${linkCount}` : 'FETCH'}
+            </button>
+          </form>
+
+          <StatusNote
+            isPending={download.isPending}
+            isError={download.isError}
+            isSuccess={download.isSuccess}
+            error={download.error}
+            warnings={download.data?.warnings ?? null}
+            filename={download.data?.filename ?? ''}
           />
-
-          <div className="downloader__row">
-            <div>
-              <label htmlFor="format">Format</label>
-              <select id="format" value={activeFormat} onChange={(e) => setFormat(e.target.value)}>
-                {config.formats.map((f) => (
-                  <option key={f} value={f}>
-                    {f.toUpperCase()}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="bitrate">MP3 bitrate (kbps)</label>
-              <select
-                id="bitrate"
-                value={activeBitrate}
-                disabled={activeFormat !== 'mp3'}
-                onChange={(e) => setBitrate(Number(e.target.value))}
-              >
-                {config.bitrates.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <button type="submit" disabled={download.isPending}>
-            {download.isPending ? 'Downloading…' : isBundle ? `Download bundle (${linkCount})` : 'Download'}
-          </button>
-        </form>
-
-        <StatusNote
-          isPending={download.isPending}
-          isError={download.isError}
-          isSuccess={download.isSuccess}
-          error={download.error}
-          warnings={download.data?.warnings ?? null}
-          filename={download.data?.filename ?? ''}
-        />
+        </div>
       </div>
     </div>
   )
@@ -133,24 +137,28 @@ function StatusNote({
   let text = ''
   if (isPending) {
     kind = 'working'
-    text = 'Working… this can take a moment per track.'
+    text = '>> working… this can take a moment per track'
   } else if (isError) {
     kind = 'error'
-    text = `Error: ${(error as Error)?.message ?? 'download failed'}`
+    text = `!! error: ${(error as Error)?.message ?? 'download failed'}`
   } else if (isSuccess) {
     kind = warnings ? 'warn' : 'ok'
-    text = warnings ? `Done with warnings: ${warnings}` : `Downloaded ${filename}`
+    text = warnings ? `?? done with warnings: ${warnings}` : `ok: downloaded ${filename}`
   }
-  return <p className={`downloader__note downloader__note--${kind}`}>{text}</p>
+  return (
+    <p className={`downloader__note downloader__note--${kind}`}>
+      {text}
+      {isPending && <span className="blink">_</span>}
+    </p>
+  )
 }
 
-function BackendDot({ status }: { status: 'pending' | 'error' | 'success' }) {
-  const label =
-    status === 'pending' ? 'checking backend…' : status === 'success' ? 'backend online' : 'backend offline'
+function BackendStatus({ status }: { status: 'pending' | 'error' | 'success' }) {
+  const label = status === 'pending' ? 'SCANNING' : status === 'success' ? 'ONLINE' : 'OFFLINE'
   const cls = status === 'pending' ? 'checking' : status === 'success' ? 'online' : 'offline'
   return (
-    <span className={`downloader__dot downloader__dot--${cls}`} title={label}>
-      <i /> {label}
+    <span className={`downloader__status downloader__status--${cls}`} title={`backend ${label}`}>
+      <i>█</i> {label}
     </span>
   )
 }
