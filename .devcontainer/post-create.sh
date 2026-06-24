@@ -5,6 +5,7 @@ set -u
 
 echo "==> Installing tooling"
 npm install -g @anthropic-ai/claude-code || true
+corepack enable pnpm || npm install -g pnpm || true
 
 # Ensure uv is on PATH (installed to /usr/local/bin via Dockerfile symlink).
 # If somehow missing (e.g. plain pip-based rebuild), install it now.
