@@ -1,19 +1,124 @@
 :root {
   color-scheme: dark;
-  --bg: #0e0f13;
-  --panel: #16181f;
-  --border: #262a35;
-  --text: #e8e8ea;
-  --muted: #8b909c;
+
+  // Green-phosphor CRT palette.
+  --bg: #020a02;
+  --bg-soft: #04140a;
+  --panel: #04140a;
+  --green: #33ff66;
+  --green-dim: #1f9c47;
+  --green-faint: #0e3d1c;
+  --amber: #ffcf4d;
+  --red: #ff5f56;
+  --text: #33ff66;
+  --muted: #1f9c47;
+  --border: #1c8a3c;
+
+  --mono: 'Courier New', 'Lucida Console', 'DejaVu Sans Mono', Monaco, monospace;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--mono);
   background: var(--bg);
   color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 4px rgba(51, 255, 102, 0.4);
+}
+
+// CRT scanlines.
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.28) 3px,
+    rgba(0, 0, 0, 0.28) 4px
+  );
+}
+
+// Screen vignette + faint flicker.
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(8, 40, 16, 0) 55%, rgba(0, 0, 0, 0.6) 100%);
+  animation: flicker 6s infinite steps(60);
+}
+
+@keyframes flicker {
+  0%,
+  97%,
+  100% { opacity: 1; }
+  98% { opacity: 0.92; }
+  99% { opacity: 0.97; }
+}
+
+::selection {
+  background: var(--green);
+  color: #001a00;
+  text-shadow: none;
+}
+
+a {
+  color: var(--green);
+  text-decoration: underline;
+}
+
+// Blinking terminal cursor utility.
+.blink {
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to { opacity: 0; }
+}
+
+.app-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  color: var(--green);
+
+  &::after {
+    content: '_';
+    animation: blink 1s steps(2, start) infinite;
+  }
+}
+
+// App shell / CRT screen frame.
+.crt {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.crt__footer {
+  margin-top: auto;
+  padding: 14px 16px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--green-faint);
+  border-top: 1px solid var(--green-faint);
 }

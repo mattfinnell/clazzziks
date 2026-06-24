@@ -7,7 +7,7 @@ export default function App() {
   const { user, loading, firebaseEnabled } = useAuth()
 
   if (loading) {
-    return <div className="app-loading">Loading…</div>
+    return <div className="app-loading">booting clazzziks</div>
   }
 
   // Gate the app when Firebase is configured. In open mode (no Firebase env),
@@ -17,9 +17,12 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className="crt">
       <AuthBar />
       <Downloader />
-    </>
+      <footer className="crt__footer">
+        CLAZZZIKS v0.1.0 :: yt-dlp + ffmpeg :: (c) 199x — no rights reserved
+      </footer>
+    </div>
   )
 }

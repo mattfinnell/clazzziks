@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import AsciiLogo from './AsciiLogo'
 import './Login.scss'
 
 export default function Login() {
@@ -21,16 +22,28 @@ export default function Login() {
 
   return (
     <div className="login">
-      <div className="login__card">
-        <h1 className="login__brand">CLAZZZIKS</h1>
-        <p className="login__sub">Sign in to download audio.</p>
-        <button className="login__btn" onClick={onSignIn} disabled={busy}>
-          {busy ? 'Signing in…' : 'Continue with Google'}
-        </button>
-        <p className="login__note">
-          Access may require owner approval before downloading.
-        </p>
-        {error && <p className="login__error">{error}</p>}
+      <div className="login__window">
+        <div className="login__titlebar">
+          <span>guest@clazzziks: ~/login</span>
+          <span className="login__btns">[_][ ][x]</span>
+        </div>
+        <div className="login__body">
+          <AsciiLogo tagline="audio extraction terminal // est. 199x" />
+
+          <div className="login__console">
+            <p>&gt; AUTHENTICATION REQUIRED.</p>
+            <p className="login__dim">&gt; access may require operator approval.</p>
+            <p>
+              &gt; awaiting credentials<span className="blink">_</span>
+            </p>
+          </div>
+
+          <button className="login__btn" onClick={onSignIn} disabled={busy}>
+            {busy ? 'AUTHENTICATING…' : 'LOGIN WITH GOOGLE'}
+          </button>
+
+          {error && <p className="login__error">! ERR: {error}</p>}
+        </div>
       </div>
     </div>
   )
