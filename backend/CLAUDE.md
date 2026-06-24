@@ -30,6 +30,22 @@ The Spotify downloader (`downloader/spotify.py`) is the reference for search-bas
 
 Never add a new route without updating the contract.
 
+## Authentication
+
+`clazzziks/auth.py` verifies Firebase ID tokens and exposes the `require_user`
+FastAPI dependency that protects `POST /api/download`. Key rule: **auth is
+enforced only when configured** — `auth_configured()` is false without a Firebase
+credential, so `require_user` returns an anonymous user and the suite/dev stay
+open. Tests make it "configured" via env (`CLAZZZIKS_FIREBASE_PROJECT_ID`) and
+monkeypatch `clazzziks.auth.verify_token` — they never need firebase-admin or the
+network (see `tests/test_auth.py`).
+
+- `CLAZZZIKS_ALLOWED_EMAILS` (optional) restricts access to an allowlist → `403`.
+- Auth aborts use `HTTPException`; a handler in `web.py` renders them in the
+  `{"error": ...}` contract shape (so `401`/`403` match the `Error` schema).
+- When adding a protected route, add its `security` + `401`/`403` responses to
+  `openapi.json` (the `firebaseToken` bearer scheme is already defined there).
+
 ## Test patterns
 
 - **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_units.py`): use `monkeypatch` to mock `download_audio` / `download_bundle`. No network. These run by default.
