@@ -111,6 +111,24 @@ backend/
 
 The full contract is defined in `clazzziks/openapi.json`.
 
+## Authentication
+
+`POST /api/download` accepts a Firebase ID token via `Authorization: Bearer <token>`.
+Auth is **enforced only when configured** — without a Firebase credential the API
+stays open (anonymous), which keeps local dev and the test suite frictionless.
+
+Configure via environment (see `.env.example` for the full list):
+
+| Variable | Purpose |
+|---|---|
+| `CLAZZZIKS_FIREBASE_CREDENTIALS` | Path to a Firebase service-account JSON (enables auth) |
+| `CLAZZZIKS_FIREBASE_PROJECT_ID` | Project id (for application-default credentials) |
+| `CLAZZZIKS_ALLOWED_EMAILS` | Comma-separated allowlist; others get `403`. Unset = any signed-in user |
+
+Verification lives in `clazzziks/auth.py` (the `require_user` dependency). Token
+verification failures return `401`, un-allowlisted users `403`, both in the
+`{"error": ...}` contract shape.
+
 ## Audio formats
 
 | Format | Notes |
