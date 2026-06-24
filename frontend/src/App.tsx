@@ -1,11 +1,9 @@
 import Login from './components/Login'
+import AuthBar from './components/AuthBar'
 import Downloader from './pages/Downloader'
 import { useAuth } from './auth/AuthContext'
 
-export type Page = 'Downloader'
-
 export default function App() {
-  const [page, setPage] = useState<Page>('Downloader')
   const { user, loading, firebaseEnabled } = useAuth()
 
   if (loading) {
@@ -20,7 +18,7 @@ export default function App() {
 
   return (
     <>
-      <TopNav page={page} onNav={setPage} />
+      <AuthBar />
       <Downloader />
     </>
   )
