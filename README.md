@@ -31,6 +31,9 @@ pnpm dev                               # http://localhost:5173
 
 Point the proxy elsewhere with `VITE_API_TARGET=http://host:port pnpm dev`.
 
+By default this runs **open** (no login). To require sign-in, configure Firebase
+on both halves — see [Authentication](#authentication).
+
 ## How it works
 
 - **YouTube / SoundCloud** are downloaded directly with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
@@ -87,9 +90,13 @@ GET  /api/              -> Swagger UI (interactive docs)
 GET  /api/health        -> {"status":"ok"}
 GET  /api/openapi.json  -> the shared API contract (see below)
 GET  /api/formats       -> supported formats + defaults (drives the UI)
-POST /api/download      form/JSON: { links, format?, bitrate? }
+POST /api/download      form/JSON: { links, format?, bitrate? }   [auth-protected]
                         -> audio file (1 link) or application/zip bundle (many)
 ```
+
+`POST /api/download` requires a Firebase ID token (`Authorization: Bearer <token>`)
+**when the backend is configured with Firebase credentials**; otherwise it stays
+open. See [Authentication](#authentication).
 
 ```bash
 curl -X POST localhost:5000/api/download \
@@ -105,6 +112,42 @@ for the `/api` surface shared by the backend and the React frontend. The backend
 serves it at `/api/openapi.json`; the frontend client (`frontend/src/api.ts`)
 builds against the same shapes; and `backend/tests/test_contract.py` validates
 the backend's live responses against it, so the two halves can't silently drift.
+
+## Authentication
+
+Auth is **optional and off by default** — with no Firebase config, both halves run
+open so you can develop without secrets. When configured, the frontend gates behind
+**Google sign-in** and sends the user's Firebase ID token as a bearer token; the
+backend verifies it on `POST /api/download` and can restrict access to an email
+allowlist.
+
+**Enable it (both halves must be configured):**
+
+1. **Frontend** — copy `frontend/.env.example` → `frontend/.env.local` and fill in
+   the Firebase web config (Console → Project settings → General → *Your apps*).
+2. **Backend** — download a service-account key (Console → Project settings →
+   *Service accounts* → Generate new private key) to
+   `backend/firebase-service-account.json`, then set the env vars in
+   `backend/.env` (template in `backend/.env.example`):
+
+   | Variable | Purpose |
+   |---|---|
+   | `CLAZZZIKS_FIREBASE_CREDENTIALS` | Path to the service-account JSON (enables auth) |
+   | `CLAZZZIKS_ALLOWED_EMAILS` | Optional comma-separated allowlist; others get `403`. Unset = any signed-in user |
+
+3. In the Firebase Console, enable **Authentication → Sign-in method → Google**.
+
+> **Note:** the backend reads real environment variables and does **not**
+> auto-load `backend/.env`. Export it before starting the server:
+> ```bash
+> cd backend && set -a && source .env && set +a && uv run clazzziks-web --port 5000
+> ```
+
+Token verification lives in `backend/clazzziks/auth.py` (`require_user`
+dependency); the frontend auth flow is in `frontend/src/auth/AuthContext.tsx` and
+`frontend/src/firebase.ts`. Secrets (`*.env`, `firebase-service-account*.json`)
+are gitignored. The web config in `.env.local` is **not** secret — Firebase web
+keys are meant to ship in client bundles; access is controlled by Auth rules.
 
 ## Formats & quality
 

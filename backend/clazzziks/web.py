@@ -26,7 +26,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -38,6 +38,7 @@ from .bundle import download_bundle
 from .inputs import collect_urls
 from .contract import load_contract
 from .logging_config import configure_logging, log_event
+from .auth import AuthUser, require_user
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,10 @@ async def formats():
 
 
 @api.post("/download")
-async def download(request: Request):
+async def download(
+    request: Request,
+    user: AuthUser = Depends(require_user),
+):
     payload = await _read_payload(request)
     raw_input = (payload.get("links") or "").strip()
     if not raw_input:
@@ -147,6 +151,12 @@ def create_app() -> FastAPI:
             duration_ms=round((time.perf_counter() - started) * 1000),
         )
         return response
+
+    @app.exception_handler(HTTPException)
+    async def _http_exc(_request: Request, exc: HTTPException):
+        # Render aborts (e.g. auth 401/403 from require_user) in the project's
+        # {"error": ...} shape so they match the Error contract and the frontend.
+        return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
     app.include_router(api)
 

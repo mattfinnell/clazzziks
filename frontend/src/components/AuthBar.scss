@@ -1,0 +1,32 @@
+.auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 24px;
+
+  &__email {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  &__signout {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+}

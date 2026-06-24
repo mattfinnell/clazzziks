@@ -1,5 +1,25 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
+// The auth layer registers a getter here (see AuthContext) so requests can
+// attach the signed-in user's Firebase ID token without api.ts importing
+// Firebase. Returns null when signed out or auth is disabled.
+type TokenProvider = () => Promise<string | null>
+let tokenProvider: TokenProvider | null = null
+
+export function setAuthTokenProvider(provider: TokenProvider | null): void {
+  tokenProvider = provider
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!tokenProvider) return {}
+  try {
+    const token = await tokenProvider()
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 export interface Config {
   formats: string[]
   default_format: string
@@ -38,7 +58,11 @@ export async function requestDownload({
   bitrate,
 }: DownloadParams): Promise<DownloadResult> {
   const body = new URLSearchParams({ links, format, bitrate: String(bitrate) })
-  const resp = await fetch(`${API_BASE}/download`, { method: 'POST', body })
+  const resp = await fetch(`${API_BASE}/download`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body,
+  })
 
   if (!resp.ok) {
     let message = resp.statusText

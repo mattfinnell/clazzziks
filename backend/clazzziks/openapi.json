@@ -57,7 +57,8 @@
       "post": {
         "operationId": "postDownload",
         "summary": "Download one audio file (single link) or a ZIP bundle (many links).",
-        "description": "Pass one link to get a single transcoded audio file. Pass multiple links\n(newline / comma / whitespace separated, or a public Google Sheets URL that\nexpands to many) to get a lossless-compression ZIP bundle.",
+        "description": "Pass one link to get a single transcoded audio file. Pass multiple links\n(newline / comma / whitespace separated, or a public Google Sheets URL that\nexpands to many) to get a lossless-compression ZIP bundle.\n\nProtected: send the caller's Firebase ID token as `Authorization: Bearer <token>`.\nAuth is enforced only when the backend is configured with Firebase credentials.",
+        "security": [{ "firebaseToken": [] }],
         "requestBody": {
           "required": true,
           "content": {
@@ -95,6 +96,18 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not yet granted access (pending approval).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
           "422": {
             "description": "The track exists but cannot be downloaded (DRM, geo-block, removed).",
             "content": {
@@ -112,6 +125,14 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "firebaseToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Firebase ID token obtained client-side via the Firebase Auth SDK."
+      }
+    },
     "schemas": {
       "AudioFormat": {
         "type": "string",

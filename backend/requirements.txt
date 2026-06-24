@@ -4,3 +4,4 @@ uvicorn>=0.29
 python-multipart>=0.0.9
 jinja2>=3.1
 requests>=2.31
+firebase-admin>=6.5

@@ -11,6 +11,14 @@ frontend/   React + Vite web utility (TypeScript, SCSS, pnpm)
 
 All backend work lives in `backend/` and uses `uv`. See `backend/CLAUDE.md` for conventions.
 
+## Auth
+
+Optional **Firebase** auth gates `POST /api/download`: the React app signs in with
+Google and sends the ID token; the backend (`clazzziks/auth.py`) verifies it.
+Enforced only when Firebase credentials are configured — otherwise both halves run
+open (keeps dev and tests secret-free). See the Authentication sections of the
+root `README.md` and `backend/CLAUDE.md`.
+
 ## Audio formats
 
 - **MP3** — 320kbps default; warns if the requested or source bitrate is below 320
