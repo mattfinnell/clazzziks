@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // bind 0.0.0.0 so the devcontainer/host can reach it
     port: 5173,
     proxy: {
       '/api': {
