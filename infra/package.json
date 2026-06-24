@@ -1,0 +1,20 @@
+{
+  "name": "clazzziks-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "aws-cdk": "^2.260.0",
+    "ts-node": "^10",
+    "typescript": "~5.4"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10"
+  }
+}
