@@ -114,8 +114,146 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
+          "429": {
+            "description": "Per-user rate limit reached (non-VIP). VIPs are exempt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
           "502": {
             "description": "Unexpected download/transcode failure.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "The signed-in caller's VIP/admin status.",
+        "description": "Used by the UI to show VIP state and reveal the admin link. In open/dev mode (no Firebase) the anonymous caller is reported as a local admin.",
+        "security": [{ "firebaseToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Caller status.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Me" } }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/admin/vips": {
+      "get": {
+        "operationId": "listVips",
+        "summary": "List the VIP group (admin only).",
+        "security": [{ "firebaseToken": [] }],
+        "responses": {
+          "200": {
+            "description": "The VIP group.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/VipList" } }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not an admin.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "addVip",
+        "summary": "Add or update a VIP (admin only).",
+        "security": [{ "firebaseToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VipCreate" }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/VipCreate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated VIP group.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/VipList" } }
+            }
+          },
+          "400": {
+            "description": "Invalid input (missing/invalid email).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not an admin.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/admin/vips/{email}": {
+      "delete": {
+        "operationId": "removeVip",
+        "summary": "Remove a VIP (admin only).",
+        "security": [{ "firebaseToken": [] }],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated VIP group.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/VipList" } }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not an admin.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "No such VIP.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -199,6 +337,48 @@
         "required": ["error"],
         "properties": {
           "error": { "type": "string" }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "is_vip", "is_admin", "anonymous"],
+        "properties": {
+          "email": { "type": ["string", "null"] },
+          "is_vip": { "type": "boolean" },
+          "is_admin": { "type": "boolean" },
+          "anonymous": { "type": "boolean" }
+        }
+      },
+      "Vip": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "is_admin", "note", "added_at"],
+        "properties": {
+          "email": { "type": "string" },
+          "is_admin": { "type": "boolean" },
+          "note": { "type": ["string", "null"] },
+          "added_at": { "type": "string" }
+        }
+      },
+      "VipList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["vips"],
+        "properties": {
+          "vips": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Vip" }
+          }
+        }
+      },
+      "VipCreate": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": { "type": "string", "minLength": 3 },
+          "note": { "type": "string" },
+          "is_admin": { "type": "boolean" }
         }
       }
     }

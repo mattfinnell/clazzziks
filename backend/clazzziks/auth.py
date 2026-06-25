@@ -168,5 +168,26 @@ async def require_user(request: Request) -> AuthUser:
     return user
 
 
+async def require_admin(request: Request) -> AuthUser:
+    """FastAPI dependency: restrict a route to admins (VIP rows with ``is_admin``).
+
+    In open/dev mode (auth not configured) there's no identity to check, so the
+    anonymous caller is allowed — consistent with the rest of the app staying
+    open without secrets. When configured, the caller must be a DB admin (403).
+    """
+    user = await require_user(request)
+    if not auth_configured():
+        return user
+
+    from . import db  # local import to avoid a module-load cycle
+
+    if not db.is_admin(user.email):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
+
+
 # Re-export so handlers can write `user: AuthUser = Depends(require_user)`.
-__all__ = ["AuthUser", "require_user", "verify_token", "auth_configured", "Depends"]
+__all__ = [
+    "AuthUser", "require_user", "require_admin", "verify_token",
+    "auth_configured", "Depends",
+]

@@ -49,6 +49,8 @@ class DownloadResult:
     source: str
     fmt: AudioFormat
     warnings: list[str] = field(default_factory=list)
+    #: The originating page URL this result came from (used for cache keys).
+    url: str = ""
 
 
 class _SilentLogger:
@@ -172,6 +174,7 @@ class Downloader(ABC):
             source=self.source.value,
             fmt=fmt,
             warnings=warnings,
+            url=url,
         )
         log_event(
             logger, logging.INFO, "download.complete",

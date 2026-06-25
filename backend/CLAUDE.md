@@ -46,6 +46,38 @@ network (see `tests/test_auth.py`).
 - When adding a protected route, add its `security` + `401`/`403` responses to
   `openapi.json` (the `firebaseToken` bearer scheme is already defined there).
 
+## Database (cache, VIP group, rate limiting)
+
+`clazzziks/db.py` is a tiny stdlib-`sqlite3` store (no server, no extra deps,
+stays secret-free). Path from `CLAZZZIKS_DB_PATH` (default `backend/clazzziks.db`),
+read on every call so tests point it at a temp file. Each op opens its own
+short-lived connection — safe to call from FastAPI's threadpool. Three tables:
+
+- **`track_cache`** — keyed by `(url, fmt)` (download source + file type). `web.py`
+  checks it before a single-link download and re-serves the existing file on a hit
+  (a stale row whose file is gone is pruned → miss). Bundle items are cached too.
+- **`vip`** — emails exempt from rate-limiting, with an `is_admin` flag. The owner
+  (`CLAZZZIKS_ADMIN_EMAIL`, default `mattfinnell104@gmail.com`) is **seeded as admin
+  whenever the group is empty**, so you can't lock yourself out.
+- **`download_log`** — one row per served download; drives the rate-limit count.
+
+**Rate limiting** (`_enforce_rate_limit` in `web.py`): non-VIP signed-in users get
+`CLAZZZIKS_RATE_LIMIT` downloads per `CLAZZZIKS_RATE_WINDOW_SECONDS` (defaults 10 /
+3600), else **429**. Only enforced when auth is configured — open/dev mode is
+anonymous and unlimited, like the rest of the app. VIPs and admins bypass it.
+
+**VIP is distinct from the auth allowlist.** `CLAZZZIKS_ALLOWED_EMAILS` (in
+`auth.py`) gates *access* (403); the VIP group only governs *rate-limit exemption*.
+
+**Admin surface:** `require_admin` (in `auth.py`) gates `GET /api/admin/vips`,
+`POST /api/admin/vips`, `DELETE /api/admin/vips/{email}` to DB admins (anonymous in
+open mode). `GET /api/me` reports the caller's VIP/admin status to the UI (the React
+`#/admin` dashboard in `frontend/`). Bootstrap/manage from the shell with the
+`clazzziks-db` CLI (`clazzziks/admin.py`): `clazzziks-db vip add|rm|ls`.
+
+The `isolated_db` autouse fixture in `tests/conftest.py` gives every test a fresh
+DB file. See `tests/test_db.py` and `tests/test_vip_api.py`.
+
 ## Test patterns
 
 - **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_units.py`): use `monkeypatch` to mock `download_audio` / `download_bundle`. No network. These run by default.
