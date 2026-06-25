@@ -87,6 +87,18 @@ def test_non_vip_is_rate_limited(client, configured, tmp_path, monkeypatch):
     assert "error" in third.json()
 
 
+def test_vip_with_custom_limit_is_capped(client, configured, tmp_path, monkeypatch):
+    # A VIP can be given a finite per-user limit by an admin.
+    db.add_vip("vip@example.com", rate_limit=1)
+    _signed_in_as(monkeypatch, uid="v1", email="vip@example.com")
+    monkeypatch.setattr("clazzziks.web.download_audio", _fake_download_factory(tmp_path, []))
+    headers = {"Authorization": "Bearer t"}
+
+    data = {"links": "https://youtu.be/abc"}
+    assert client.post("/api/download", data=data, headers=headers).status_code == 200
+    assert client.post("/api/download", data=data, headers=headers).status_code == 429
+
+
 def test_vip_bypasses_rate_limit(client, configured, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "1")
     db.add_vip("vip@example.com")
@@ -112,7 +124,10 @@ def test_no_rate_limit_in_open_mode(client, tmp_path, monkeypatch):
 
 def test_me_reports_local_admin_in_open_mode(client):
     body = client.get("/api/me").json()
-    assert body == {"email": None, "is_vip": True, "is_admin": True, "anonymous": True}
+    assert body == {
+        "email": None, "is_vip": True, "is_admin": True,
+        "anonymous": True, "rate_limit": None,
+    }
 
 
 def test_me_reflects_vip_and_admin_when_configured(client, configured, monkeypatch):
@@ -138,8 +153,43 @@ def test_admin_can_add_and_remove_vip_open_mode(client):
     assert "new@example.com" not in [v["email"] for v in removed.json()["vips"]]
 
 
+def test_add_vip_with_rate_limit(client):
+    resp = client.post(
+        "/api/admin/vips", json={"email": "capped@example.com", "rate_limit": 7}
+    )
+    assert resp.status_code == 200
+    row = {v["email"]: v for v in resp.json()["vips"]}["capped@example.com"]
+    assert row["rate_limit"] == 7
+
+
+def test_patch_configures_vip_rate_limit(client):
+    client.post("/api/admin/vips", json={"email": "vip@example.com"})
+    patched = client.patch("/api/admin/vips/vip@example.com", json={"rate_limit": 42})
+    assert patched.status_code == 200
+    row = {v["email"]: v for v in patched.json()["vips"]}["vip@example.com"]
+    assert row["rate_limit"] == 42
+
+    # null clears it back to unlimited.
+    cleared = client.patch("/api/admin/vips/vip@example.com", json={"rate_limit": None})
+    row = {v["email"]: v for v in cleared.json()["vips"]}["vip@example.com"]
+    assert row["rate_limit"] is None
+
+
+def test_patch_unknown_vip_is_404(client):
+    resp = client.patch("/api/admin/vips/ghost@example.com", json={"rate_limit": 5})
+    assert resp.status_code == 404
+
+
 def test_add_vip_rejects_bad_email(client):
     resp = client.post("/api/admin/vips", json={"email": "not-an-email"})
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+
+def test_add_vip_rejects_bad_rate_limit(client):
+    resp = client.post(
+        "/api/admin/vips", json={"email": "x@example.com", "rate_limit": -3}
+    )
     assert resp.status_code == 400
     assert "error" in resp.json()
 

@@ -5,10 +5,12 @@
 Always prefix with `uv run` from `backend/`:
 
 ```bash
-uv run pytest                  # unit + contract tests
+docker compose up -d db        # Postgres (from repo root) — required for tests/app
+uv run pytest                  # unit + contract tests (need Postgres up)
 uv run pytest -m e2e -v        # real-network e2e tests
 uv run clazzziks-web --reload  # dev server (JSON logs, default)
 CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload  # coloured dev logs
+uv run clazzziks-db vip ls     # manage the VIP group / rate limits
 ```
 
 ## Adding a new platform downloader
@@ -48,35 +50,43 @@ network (see `tests/test_auth.py`).
 
 ## Database (cache, VIP group, rate limiting)
 
-`clazzziks/db.py` is a tiny stdlib-`sqlite3` store (no server, no extra deps,
-stays secret-free). Path from `CLAZZZIKS_DB_PATH` (default `backend/clazzziks.db`),
-read on every call so tests point it at a temp file. Each op opens its own
-short-lived connection — safe to call from FastAPI's threadpool. Three tables:
+`clazzziks/db.py` is a **SQLAlchemy ORM** layer over **Postgres**. Connection from
+`CLAZZZIKS_DATABASE_URL` (default = the local `docker compose up -d db` Postgres),
+read lazily; the engine is cached per-URL so tests can point at another database.
+Public functions return small frozen dataclasses (`CachedTrack`, `Vip`) — callers
+never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first use):
 
 - **`track_cache`** — keyed by `(url, fmt)` (download source + file type). `web.py`
   checks it before a single-link download and re-serves the existing file on a hit
   (a stale row whose file is gone is pruned → miss). Bundle items are cached too.
-- **`vip`** — emails exempt from rate-limiting, with an `is_admin` flag. The owner
-  (`CLAZZZIKS_ADMIN_EMAIL`, default `mattfinnell104@gmail.com`) is **seeded as admin
-  whenever the group is empty**, so you can't lock yourself out.
+- **`vip`** — rate-limit policy per user: `is_admin` flag + nullable `rate_limit`
+  (**NULL = unlimited**, the default for a VIP). The owner (`CLAZZZIKS_ADMIN_EMAIL`,
+  default `mattfinnell104@gmail.com`) is **seeded as admin whenever the group is
+  empty** (including after a removal empties it), so you can't lock yourself out.
 - **`download_log`** — one row per served download; drives the rate-limit count.
 
-**Rate limiting** (`_enforce_rate_limit` in `web.py`): non-VIP signed-in users get
-`CLAZZZIKS_RATE_LIMIT` downloads per `CLAZZZIKS_RATE_WINDOW_SECONDS` (defaults 10 /
-3600), else **429**. Only enforced when auth is configured — open/dev mode is
-anonymous and unlimited, like the rest of the app. VIPs and admins bypass it.
+**Rate limiting is FastAPI middleware** (`_rate_limit` in `web.py`'s `create_app`),
+enforced before any work on `POST /api/download`. `db.effective_rate_limit(email)`
+resolves the cap: a normal user gets `CLAZZZIKS_RATE_LIMIT` (default **20**) per
+`CLAZZZIKS_RATE_WINDOW_SECONDS` (default 3600); a VIP gets their configured
+`rate_limit` (unlimited unless an admin set a number). Over the cap → **429**. The
+middleware only *enforces* (pre-check); the handler *records* each downloaded track
+via `db.log_download`, so the count reflects what was actually served. Open/dev mode
+(auth not configured) is anonymous and unlimited.
 
 **VIP is distinct from the auth allowlist.** `CLAZZZIKS_ALLOWED_EMAILS` (in
-`auth.py`) gates *access* (403); the VIP group only governs *rate-limit exemption*.
+`auth.py`) gates *access* (403); the VIP group governs *rate-limit policy*.
 
-**Admin surface:** `require_admin` (in `auth.py`) gates `GET /api/admin/vips`,
-`POST /api/admin/vips`, `DELETE /api/admin/vips/{email}` to DB admins (anonymous in
-open mode). `GET /api/me` reports the caller's VIP/admin status to the UI (the React
-`#/admin` dashboard in `frontend/`). Bootstrap/manage from the shell with the
-`clazzziks-db` CLI (`clazzziks/admin.py`): `clazzziks-db vip add|rm|ls`.
+**Admin surface:** `require_admin` (in `auth.py`) gates `GET/POST /api/admin/vips`,
+`PATCH /api/admin/vips/{email}` (set a VIP's rate limit), `DELETE …` to DB admins
+(anonymous in open mode). `GET /api/me` reports the caller's VIP/admin status +
+effective `rate_limit` to the React `#/admin` dashboard (`frontend/`). Shell admin:
+`clazzziks-db vip add|limit|rm|ls` (`clazzziks/admin.py`).
 
-The `isolated_db` autouse fixture in `tests/conftest.py` gives every test a fresh
-DB file. See `tests/test_db.py` and `tests/test_vip_api.py`.
+**Tests need a live Postgres** (`docker compose up -d db`). The `isolated_db`
+autouse fixture (`tests/conftest.py`) truncates all tables between tests against the
+`clazzziks_test` database (`CLAZZZIKS_TEST_DATABASE_URL`). See `tests/test_db.py`
+and `tests/test_vip_api.py`.
 
 ## Test patterns
 

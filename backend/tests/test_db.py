@@ -92,6 +92,46 @@ def test_blank_email_is_never_vip():
     assert db.is_admin("") is False
 
 
+# --- per-user rate limit ---------------------------------------------------
+
+def test_normal_user_gets_default_rate_limit(monkeypatch):
+    monkeypatch.delenv("CLAZZZIKS_RATE_LIMIT", raising=False)
+    # Default is 20 tracks/window for anyone not in the VIP group.
+    assert db.effective_rate_limit("nobody@example.com") == 20
+
+
+def test_default_rate_limit_is_env_overridable(monkeypatch):
+    monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "5")
+    assert db.effective_rate_limit("nobody@example.com") == 5
+
+
+def test_vip_is_unlimited_by_default():
+    db.add_vip("vip@example.com")
+    # None == unlimited; a VIP isn't capped unless an admin sets a number.
+    assert db.effective_rate_limit("vip@example.com") is None
+
+
+def test_vip_can_have_a_custom_rate_limit():
+    db.add_vip("vip@example.com", rate_limit=100)
+    assert db.effective_rate_limit("vip@example.com") == 100
+
+
+def test_update_vip_changes_only_given_fields():
+    db.add_vip("vip@example.com", note="orig", rate_limit=50)
+    assert db.update_vip("vip@example.com", rate_limit=10) is True
+    v = {x.email: x for x in db.list_vips()}["vip@example.com"]
+    assert v.rate_limit == 10
+    assert v.note == "orig"  # untouched
+
+    # Explicitly clearing back to unlimited.
+    db.update_vip("vip@example.com", rate_limit=None)
+    assert db.effective_rate_limit("vip@example.com") is None
+
+
+def test_update_vip_unknown_is_false():
+    assert db.update_vip("ghost@example.com", rate_limit=5) is False
+
+
 # --- rate-limit log --------------------------------------------------------
 
 def test_count_recent_downloads_respects_window():

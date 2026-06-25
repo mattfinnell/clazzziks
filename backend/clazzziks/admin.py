@@ -5,11 +5,14 @@ dashboard (e.g. on a fresh server, or to promote the first admin):
 
     clazzziks-db init                         # create the db file + tables
     clazzziks-db vip ls                       # list the VIP group
-    clazzziks-db vip add you@example.com      # add a VIP
+    clazzziks-db vip add you@example.com      # add a VIP (unlimited)
     clazzziks-db vip add boss@x.com --admin --note "owner"
+    clazzziks-db vip add pal@x.com --rate-limit 50   # capped VIP
+    clazzziks-db vip limit pal@x.com 100      # change a VIP's cap
+    clazzziks-db vip limit pal@x.com unlimited
     clazzziks-db vip rm you@example.com       # remove a VIP
 
-Honours ``CLAZZZIKS_DB_PATH`` like the rest of the app.
+Honours ``CLAZZZIKS_DATABASE_URL`` like the rest of the app.
 """
 
 from __future__ import annotations
@@ -21,8 +24,21 @@ from . import db
 
 def _cmd_init(_args: argparse.Namespace) -> int:
     db.init_db()
-    print(f"Initialised {db.db_path()}")
+    print(f"Initialised {db.database_url()}")
     return 0
+
+
+def _fmt_limit(value: int | None) -> str:
+    return "unlimited" if value is None else f"{value}/window"
+
+
+def _parse_limit(raw: str) -> int | None:
+    if raw.strip().lower() in ("unlimited", "inf", "infinite", "none", "0"):
+        return None
+    limit = int(raw)
+    if limit <= 0:
+        raise ValueError("rate limit must be a positive integer or 'unlimited'")
+    return limit
 
 
 def _cmd_vip_ls(_args: argparse.Namespace) -> int:
@@ -33,14 +49,24 @@ def _cmd_vip_ls(_args: argparse.Namespace) -> int:
     for v in vips:
         flag = " [admin]" if v.is_admin else ""
         note = f"  — {v.note}" if v.note else ""
-        print(f"{v.email}{flag}  (added {v.added_at}){note}")
+        print(f"{v.email}{flag}  limit={_fmt_limit(v.rate_limit)}  (added {v.added_at}){note}")
     return 0
 
 
 def _cmd_vip_add(args: argparse.Namespace) -> int:
-    db.add_vip(args.email, note=args.note, is_admin=args.admin)
+    limit = _parse_limit(args.rate_limit) if args.rate_limit is not None else None
+    db.add_vip(args.email, note=args.note, is_admin=args.admin, rate_limit=limit)
     role = "admin" if args.admin else "VIP"
-    print(f"Added {args.email} as {role}.")
+    print(f"Added {args.email} as {role} (limit {_fmt_limit(limit)}).")
+    return 0
+
+
+def _cmd_vip_limit(args: argparse.Namespace) -> int:
+    limit = _parse_limit(args.rate_limit)
+    if not db.update_vip(args.email, rate_limit=limit):
+        print(f"{args.email} is not a VIP.")
+        return 1
+    print(f"Set {args.email} rate limit to {_fmt_limit(limit)}.")
     return 0
 
 
@@ -71,7 +97,16 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("email")
     add.add_argument("--admin", action="store_true", help="Grant admin rights.")
     add.add_argument("--note", default=None, help="Optional note.")
+    add.add_argument(
+        "--rate-limit", default=None,
+        help="Per-VIP cap (integer) or 'unlimited' (default).",
+    )
     add.set_defaults(func=_cmd_vip_add)
+
+    limit = vip_sub.add_parser("limit", help="Set a VIP's rate limit.")
+    limit.add_argument("email")
+    limit.add_argument("rate_limit", help="Integer cap or 'unlimited'.")
+    limit.set_defaults(func=_cmd_vip_limit)
 
     rm = vip_sub.add_parser("rm", help="Remove a VIP.")
     rm.add_argument("email")

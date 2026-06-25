@@ -26,7 +26,6 @@ Routes:
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
 from pathlib import Path
@@ -43,48 +42,29 @@ from .bundle import download_bundle
 from .inputs import collect_urls
 from .contract import load_contract
 from .logging_config import configure_logging, log_event
-from .auth import AuthUser, require_user, require_admin, auth_configured
+from .auth import (
+    AuthUser, require_user, require_admin, resolve_optional_user, auth_configured,
+)
 from . import db
 
 logger = logging.getLogger(__name__)
 
 
-def _rate_limit() -> int:
-    # Max downloads per window for a non-VIP caller. <= 0 disables the limit.
-    try:
-        return int(os.environ.get("CLAZZZIKS_RATE_LIMIT", "10"))
-    except ValueError:
-        return 10
+def _over_rate_limit(user: AuthUser) -> tuple[bool, int, int]:
+    """Whether ``user`` has hit their per-window quota.
 
-
-def _rate_window_seconds() -> int:
-    try:
-        return int(os.environ.get("CLAZZZIKS_RATE_WINDOW_SECONDS", "3600"))
-    except ValueError:
-        return 3600
-
-
-def _enforce_rate_limit(user: AuthUser) -> None:
-    """Raise HTTPException(429) if a non-VIP caller is over their window quota.
-
-    VIPs and admins bypass it; so does open/dev mode (auth not configured), where
-    every caller is anonymous and the app is intentionally unguarded.
+    Returns ``(over, limit, window_seconds)``. A ``None`` effective limit
+    (unlimited — VIPs by default) is never over. Open/dev mode is unlimited.
     """
-    limit = _rate_limit()
-    if limit <= 0 or not auth_configured() or user.anonymous:
-        return
-    if db.is_vip(user.email):
-        return
-    window = _rate_window_seconds()
+    window = db.rate_window_seconds()
+    if not auth_configured() or user.anonymous:
+        return False, 0, window
+    limit = db.effective_rate_limit(user.email)
+    if limit is None:
+        return False, 0, window
     used = db.count_recent_downloads(user.uid, window)
-    if used >= limit:
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Rate limit reached ({limit} downloads per "
-                f"{window // 60 or 1} min). Ask an admin for VIP access."
-            ),
-        )
+    return used >= limit, limit, window
+
 
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).with_name("templates")))
 _TRACKS_DIR = Path(__file__).parents[2] / "tracks"
@@ -125,12 +105,16 @@ async def me(user: AuthUser = Depends(require_user)):
     # In open/dev mode there's no identity, so treat the anonymous caller as a
     # local admin (the app is intentionally unguarded without Firebase).
     if user.anonymous:
-        return {"email": None, "is_vip": True, "is_admin": True, "anonymous": True}
+        return {
+            "email": None, "is_vip": True, "is_admin": True,
+            "anonymous": True, "rate_limit": None,
+        }
     return {
         "email": user.email,
         "is_vip": db.is_vip(user.email),
         "is_admin": db.is_admin(user.email),
         "anonymous": False,
+        "rate_limit": db.effective_rate_limit(user.email),
     }
 
 
@@ -145,7 +129,33 @@ async def add_vip(request: Request, _admin: AuthUser = Depends(require_admin)):
     email = (payload.get("email") or "").strip()
     if "@" not in email:
         return _error("A valid email is required.", 400)
-    db.add_vip(email, note=payload.get("note"), is_admin=bool(payload.get("is_admin")))
+    rate_limit, err = _parse_rate_limit(payload.get("rate_limit"))
+    if err:
+        return _error(err, 400)
+    db.add_vip(
+        email,
+        note=payload.get("note"),
+        is_admin=bool(payload.get("is_admin")),
+        rate_limit=rate_limit,
+    )
+    return {"vips": [_vip_dict(v) for v in db.list_vips()]}
+
+
+@api.patch("/admin/vips/{email}")
+async def update_vip(email: str, request: Request, _admin: AuthUser = Depends(require_admin)):
+    payload = await _read_payload(request)
+    changes: dict = {}
+    if "rate_limit" in payload:
+        rate_limit, err = _parse_rate_limit(payload.get("rate_limit"))
+        if err:
+            return _error(err, 400)
+        changes["rate_limit"] = rate_limit
+    if "note" in payload:
+        changes["note"] = payload.get("note")
+    if "is_admin" in payload:
+        changes["is_admin"] = bool(payload.get("is_admin"))
+    if not db.update_vip(email, **changes):
+        return _error(f"{email} is not a VIP.", 404)
     return {"vips": [_vip_dict(v) for v in db.list_vips()]}
 
 
@@ -183,8 +193,6 @@ async def download(
         uid=user.uid, vip=db.is_vip(user.email),
     )
 
-    _enforce_rate_limit(user)
-
     try:
         if len(urls) == 1:
             fmt = _parse_format(payload.get("format"), default=AudioFormat.MP3)
@@ -219,6 +227,33 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Clazzziks-Warnings", "Content-Disposition"],
     )
+
+    @app.middleware("http")
+    async def _rate_limit(request: Request, call_next):
+        # Per-user rate limiting lives in middleware so the quota is enforced
+        # before any work begins. Only POST /api/download is gated; VIPs (and
+        # open/dev mode) are unlimited. Recording each downloaded track happens
+        # in the handler, so the count reflects what was actually served.
+        if request.method == "POST" and request.url.path.rstrip("/") == "/api/download":
+            user = resolve_optional_user(request)
+            if user is not None and not user.anonymous:
+                over, limit, window = _over_rate_limit(user)
+                if over:
+                    minutes = max(window // 60, 1)
+                    log_event(
+                        logger, logging.WARNING, "rate_limit.blocked",
+                        uid=user.uid, limit=limit, window_seconds=window,
+                    )
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "error": (
+                                f"Rate limit reached ({limit} tracks per "
+                                f"{minutes} min). Ask an admin for VIP access."
+                            )
+                        },
+                    )
+        return await call_next(request)
 
     @app.middleware("http")
     async def _observability(request: Request, call_next):
@@ -339,8 +374,30 @@ def _vip_dict(v: db.Vip) -> dict:
         "email": v.email,
         "is_admin": v.is_admin,
         "note": v.note,
+        "rate_limit": v.rate_limit,
         "added_at": v.added_at,
     }
+
+
+def _parse_rate_limit(value) -> tuple[int | None, str | None]:
+    """Parse a rate-limit input. ``(limit, error)``; ``None`` limit = unlimited.
+
+    Accepts null/""/"unlimited"/"inf" as unlimited, otherwise a positive integer.
+    """
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("", "unlimited", "inf", "infinite", "none", "null"):
+            return None, None
+        value = text
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return None, "rate_limit must be a positive integer or unlimited."
+    if limit <= 0:
+        return None, "rate_limit must be a positive integer or unlimited."
+    return limit, None
 
 
 def _error(message: str, status: int):

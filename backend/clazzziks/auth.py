@@ -168,6 +168,25 @@ async def require_user(request: Request) -> AuthUser:
     return user
 
 
+def resolve_optional_user(request: Request) -> AuthUser | None:
+    """Best-effort, non-raising user resolution for middleware.
+
+    - Auth not configured (dev): returns the anonymous user.
+    - Configured with a valid token: returns the verified user.
+    - Configured but token missing/invalid: returns ``None`` (let the route's
+      ``require_user`` dependency produce the proper 401).
+    """
+    if not auth_configured():
+        return AuthUser(uid="anonymous", email=None, anonymous=True)
+    token = _bearer_token(request)
+    if not token:
+        return None
+    try:
+        return verify_token(token)
+    except HTTPException:
+        return None
+
+
 async def require_admin(request: Request) -> AuthUser:
     """FastAPI dependency: restrict a route to admins (VIP rows with ``is_admin``).
 
@@ -188,6 +207,6 @@ async def require_admin(request: Request) -> AuthUser:
 
 # Re-export so handlers can write `user: AuthUser = Depends(require_user)`.
 __all__ = [
-    "AuthUser", "require_user", "require_admin", "verify_token",
-    "auth_configured", "Depends",
+    "AuthUser", "require_user", "require_admin", "resolve_optional_user",
+    "verify_token", "auth_configured", "Depends",
 ]

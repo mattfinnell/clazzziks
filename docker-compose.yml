@@ -1,0 +1,28 @@
+# Local Postgres for CLAZZZIKS (dev + tests).
+#
+#   docker compose up -d db        # start Postgres
+#   docker compose down            # stop (keeps data)
+#   docker compose down -v         # stop + wipe the data volume
+#
+# The backend reads CLAZZZIKS_DATABASE_URL; the default points here:
+#   postgresql+psycopg://clazzziks:clazzziks@localhost:5432/clazzziks
+# The test suite uses the separate `clazzziks_test` database created on first boot.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clazzziks
+      POSTGRES_PASSWORD: clazzziks
+      POSTGRES_DB: clazzziks
+    ports:
+      - "5432:5432"
+    volumes:
+      - clazzziks_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clazzziks -d clazzziks"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  clazzziks_pgdata:

@@ -1,67 +1,90 @@
-"""A small SQLite store for CLAZZZIKS.
+"""The CLAZZZIKS data layer — SQLAlchemy ORM over Postgres.
 
-Three tables, all backed by a single file (stdlib :mod:`sqlite3` — no server, no
-extra dependency, matching the project's "stay secret-free in dev/tests" stance):
+Three tables:
 
-* ``track_cache``  — tracks already downloaded, keyed by ``(url, fmt)`` (the
-  download source + file type), so a repeat request can re-serve the existing
-  file instead of paying for a second fetch/transcode.
-* ``vip``          — the VIP group: emails allowed to use the tool without
-  rate-limiting, plus an ``is_admin`` flag for those who may manage the group.
-* ``download_log`` — one row per served download, used to enforce a simple
-  per-user rate limit (count rows inside a sliding window).
+* ``track_cache``  — tracks already downloaded, keyed by ``(url, fmt)`` (download
+  source + file type), so a repeat request re-serves the existing file instead of
+  paying for a second fetch/transcode.
+* ``vip``          — the VIP group: rate-limit-exempt users, an ``is_admin`` flag
+  for those who may manage the group, and an optional per-VIP ``rate_limit``
+  (``NULL`` = unlimited; the default for a VIP).
+* ``download_log`` — one row per served download, used to enforce the per-user
+  rate limit (count rows inside a sliding window).
 
-The database path comes from ``CLAZZZIKS_DB_PATH`` (default ``backend/clazzziks.db``)
-and is read on every call so tests can point it at a temp file via ``monkeypatch``.
-Each operation opens its own short-lived connection, which keeps the module
-trivially safe to call from FastAPI's threadpool without a shared-connection lock.
+Connection comes from ``CLAZZZIKS_DATABASE_URL`` (default points at the local
+docker-compose Postgres). The engine is built lazily and cached per-URL, so the
+test suite can point it at a separate database via the environment. Public
+functions return small frozen dataclasses (not ORM rows) so callers never deal
+with sessions or detached-instance surprises.
 
-On first use (an empty ``vip`` table) the admin from ``CLAZZZIKS_ADMIN_EMAIL``
-(default ``mattfinnell104@gmail.com``) is seeded so the owner can never be locked
-out of the dashboard.
+On first use of a database (an empty ``vip`` table) the owner from
+``CLAZZZIKS_ADMIN_EMAIL`` (default ``mattfinnell104@gmail.com``) is seeded as an
+admin, so the owner can never be locked out of the dashboard.
 """
 
 from __future__ import annotations
 
 import os
-import sqlite3
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator
 
-DEFAULT_DB_PATH = Path(__file__).with_name("clazzziks.db")
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    func,
+    select,
+)
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+
+DEFAULT_DATABASE_URL = "postgresql+psycopg://clazzziks:clazzziks@localhost:5432/clazzziks"
 DEFAULT_ADMIN_EMAIL = "mattfinnell104@gmail.com"
+DEFAULT_RATE_LIMIT = 20  # tracks per window for a normal (non-VIP) user
+DEFAULT_RATE_WINDOW_SECONDS = 3600  # one hour
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS track_cache (
-    url        TEXT NOT NULL,
-    fmt        TEXT NOT NULL,
-    path       TEXT NOT NULL,
-    title      TEXT,
-    source     TEXT,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (url, fmt)
-);
+# Sentinel so partial updates can tell "leave unchanged" from "set to NULL".
+_UNSET = object()
 
-CREATE TABLE IF NOT EXISTS vip (
-    email    TEXT PRIMARY KEY,
-    is_admin INTEGER NOT NULL DEFAULT 0,
-    note     TEXT,
-    added_at TEXT NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS download_log (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    uid        TEXT NOT NULL,
-    email      TEXT,
-    url        TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
+class Base(DeclarativeBase):
+    pass
 
-CREATE INDEX IF NOT EXISTS idx_download_log_uid ON download_log (uid, created_at);
-"""
+
+class TrackCacheRow(Base):
+    __tablename__ = "track_cache"
+
+    url: Mapped[str] = mapped_column(Text, primary_key=True)
+    fmt: Mapped[str] = mapped_column(String(16), primary_key=True)
+    path: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class VipRow(Base):
+    __tablename__ = "vip"
+
+    email: Mapped[str] = mapped_column(String(320), primary_key=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NULL -> unlimited (the default for a VIP); an integer caps tracks/window.
+    rate_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DownloadLogRow(Base):
+    __tablename__ = "download_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    uid: Mapped[str] = mapped_column(String(128), index=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    url: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 @dataclass(frozen=True)
@@ -71,7 +94,7 @@ class CachedTrack:
     path: str
     title: str | None
     source: str | None
-    created_at: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -79,61 +102,68 @@ class Vip:
     email: str
     is_admin: bool
     note: str | None
-    added_at: str
+    rate_limit: int | None  # None == unlimited
+    added_at: datetime
 
 
-def db_path() -> Path:
-    """Resolve the SQLite file path (env-overridable, read on every call)."""
-    return Path(os.environ.get("CLAZZZIKS_DB_PATH") or DEFAULT_DB_PATH)
+# --- engine / session ------------------------------------------------------
+
+_engines: dict[str, Engine] = {}
 
 
-def _admin_seed_email() -> str:
-    return (os.environ.get("CLAZZZIKS_ADMIN_EMAIL") or DEFAULT_ADMIN_EMAIL).strip().lower()
+def database_url() -> str:
+    return os.environ.get("CLAZZZIKS_DATABASE_URL") or DEFAULT_DATABASE_URL
+
+
+def _engine() -> Engine:
+    """Return a cached engine for the current URL, creating schema + seed once."""
+    url = database_url()
+    engine = _engines.get(url)
+    if engine is None:
+        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+        engine = create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
+        Base.metadata.create_all(engine)
+        _engines[url] = engine
+        _seed_admin(engine)
+    return engine
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _iso(dt: datetime) -> str:
-    return dt.isoformat(timespec="seconds")
+def _seed_admin(engine: Engine) -> None:
+    """Seed the owner as admin whenever the VIP group is empty (anti-lockout)."""
+    with Session(engine) as s:
+        if s.scalar(select(func.count()).select_from(VipRow)) == 0:
+            s.add(VipRow(
+                email=_admin_seed_email(), is_admin=True,
+                note="seeded owner", rate_limit=None, added_at=_now(),
+            ))
+            s.commit()
 
 
-@contextmanager
-def _connect() -> Iterator[sqlite3.Connection]:
-    """Open a connection, ensure the schema + admin seed, and commit on exit."""
-    path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.executescript(_SCHEMA)
-        _seed_admin(conn)
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _seed_admin(conn: sqlite3.Connection) -> None:
-    """Bootstrap the owner as an admin whenever the VIP group is empty.
-
-    Seeding on "empty" rather than "missing" means clearing the group can never
-    lock the owner out of the admin dashboard.
-    """
-    empty = conn.execute("SELECT 1 FROM vip LIMIT 1").fetchone() is None
-    if empty:
-        conn.execute(
-            "INSERT OR IGNORE INTO vip (email, is_admin, note, added_at) "
-            "VALUES (?, 1, 'seeded owner', ?)",
-            (_admin_seed_email(), _iso(_now())),
-        )
+def _admin_seed_email() -> str:
+    return (os.environ.get("CLAZZZIKS_ADMIN_EMAIL") or DEFAULT_ADMIN_EMAIL).strip().lower()
 
 
 def init_db() -> None:
-    """Create the database file, tables, and admin seed if they don't exist yet."""
-    with _connect():
-        pass
+    """Create the schema (and admin seed) for the configured database."""
+    _engine()
+
+
+def default_rate_limit() -> int:
+    try:
+        return int(os.environ.get("CLAZZZIKS_RATE_LIMIT", str(DEFAULT_RATE_LIMIT)))
+    except ValueError:
+        return DEFAULT_RATE_LIMIT
+
+
+def rate_window_seconds() -> int:
+    try:
+        return int(os.environ.get("CLAZZZIKS_RATE_WINDOW_SECONDS", str(DEFAULT_RATE_WINDOW_SECONDS)))
+    except ValueError:
+        return DEFAULT_RATE_WINDOW_SECONDS
 
 
 # --- track cache -----------------------------------------------------------
@@ -141,19 +171,20 @@ def init_db() -> None:
 def get_cached_track(url: str, fmt: str) -> CachedTrack | None:
     """Return a prior download for ``(url, fmt)`` if its file still exists.
 
-    A stale row whose file has since been deleted is pruned and treated as a miss,
-    so the caller falls back to a fresh download.
+    A stale row whose file has since been deleted is pruned and treated as a miss.
     """
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM track_cache WHERE url = ? AND fmt = ?", (url, fmt)
-        ).fetchone()
+    with Session(_engine()) as s:
+        row = s.get(TrackCacheRow, (url, fmt))
         if row is None:
             return None
-        if not Path(row["path"]).exists():
-            conn.execute("DELETE FROM track_cache WHERE url = ? AND fmt = ?", (url, fmt))
+        if not Path(row.path).exists():
+            s.delete(row)
+            s.commit()
             return None
-        return CachedTrack(**dict(row))
+        return CachedTrack(
+            url=row.url, fmt=row.fmt, path=row.path,
+            title=row.title, source=row.source, created_at=row.created_at,
+        )
 
 
 def cache_track(
@@ -164,83 +195,140 @@ def cache_track(
     title: str | None = None,
     source: str | None = None,
 ) -> None:
-    """Remember a freshly downloaded track so the next request can skip the work."""
-    with _connect() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO track_cache "
-            "(url, fmt, path, title, source, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (url, fmt, path, title, source, _iso(_now())),
-        )
+    with Session(_engine()) as s:
+        row = s.get(TrackCacheRow, (url, fmt))
+        if row is None:
+            s.add(TrackCacheRow(
+                url=url, fmt=fmt, path=path, title=title,
+                source=source, created_at=_now(),
+            ))
+        else:
+            row.path, row.title, row.source, row.created_at = path, title, source, _now()
+        s.commit()
 
 
 # --- VIP group -------------------------------------------------------------
 
-def add_vip(email: str, *, note: str | None = None, is_admin: bool = False) -> None:
-    """Add (or update) a VIP. Promoting an existing member to admin is preserved."""
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO vip (email, is_admin, note, added_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(email) DO UPDATE SET "
-            "is_admin = max(is_admin, excluded.is_admin), note = excluded.note",
-            (email.strip().lower(), int(is_admin), note, _iso(_now())),
-        )
+def add_vip(
+    email: str,
+    *,
+    note: str | None = None,
+    is_admin: bool = False,
+    rate_limit: int | None = None,
+) -> None:
+    """Add or update a VIP. An existing admin is never silently demoted."""
+    email = email.strip().lower()
+    with Session(_engine()) as s:
+        row = s.get(VipRow, email)
+        if row is None:
+            s.add(VipRow(
+                email=email, is_admin=is_admin, note=note,
+                rate_limit=rate_limit, added_at=_now(),
+            ))
+        else:
+            row.is_admin = row.is_admin or is_admin
+            row.note = note
+            row.rate_limit = rate_limit
+        s.commit()
+
+
+def update_vip(
+    email: str,
+    *,
+    note=_UNSET,
+    is_admin=_UNSET,
+    rate_limit=_UNSET,
+) -> bool:
+    """Apply a partial update to a VIP. Returns False if no such VIP.
+
+    Only fields explicitly passed are changed, so ``rate_limit=None`` means
+    "set to unlimited" while omitting it leaves the current value untouched.
+    """
+    with Session(_engine()) as s:
+        row = s.get(VipRow, email.strip().lower())
+        if row is None:
+            return False
+        if note is not _UNSET:
+            row.note = note
+        if is_admin is not _UNSET:
+            row.is_admin = bool(is_admin)
+        if rate_limit is not _UNSET:
+            row.rate_limit = rate_limit
+        s.commit()
+        return True
 
 
 def remove_vip(email: str) -> bool:
-    """Remove a VIP; return True if a row was actually deleted."""
-    with _connect() as conn:
-        cur = conn.execute("DELETE FROM vip WHERE email = ?", (email.strip().lower(),))
-        return cur.rowcount > 0
+    with Session(_engine()) as s:
+        row = s.get(VipRow, email.strip().lower())
+        if row is None:
+            return False
+        s.delete(row)
+        s.flush()
+        # Anti-lockout: never let the group go fully empty — re-seed the owner.
+        if s.scalar(select(func.count()).select_from(VipRow)) == 0:
+            s.add(VipRow(
+                email=_admin_seed_email(), is_admin=True,
+                note="seeded owner", rate_limit=None, added_at=_now(),
+            ))
+        s.commit()
+        return True
 
 
 def list_vips() -> list[Vip]:
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT email, is_admin, note, added_at FROM vip ORDER BY email"
-        ).fetchall()
+    with Session(_engine()) as s:
+        rows = s.scalars(select(VipRow).order_by(VipRow.email)).all()
         return [
-            Vip(email=r["email"], is_admin=bool(r["is_admin"]),
-                note=r["note"], added_at=r["added_at"])
+            Vip(email=r.email, is_admin=r.is_admin, note=r.note,
+                rate_limit=r.rate_limit, added_at=r.added_at)
             for r in rows
         ]
 
 
-def is_vip(email: str | None) -> bool:
+def _get_vip(email: str | None) -> VipRow | None:
     if not email:
-        return False
-    with _connect() as conn:
-        return conn.execute(
-            "SELECT 1 FROM vip WHERE email = ?", (email.strip().lower(),)
-        ).fetchone() is not None
+        return None
+    with Session(_engine()) as s:
+        return s.get(VipRow, email.strip().lower())
+
+
+def is_vip(email: str | None) -> bool:
+    return _get_vip(email) is not None
 
 
 def is_admin(email: str | None) -> bool:
-    if not email:
-        return False
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT is_admin FROM vip WHERE email = ?", (email.strip().lower(),)
-        ).fetchone()
-        return bool(row and row["is_admin"])
+    row = _get_vip(email)
+    return bool(row and row.is_admin)
+
+
+def effective_rate_limit(email: str | None) -> int | None:
+    """The caller's tracks-per-window cap. ``None`` means unlimited.
+
+    Normal users get :func:`default_rate_limit` (20). A VIP gets their configured
+    ``rate_limit``, which is ``None`` (unlimited) unless an admin set a number.
+    """
+    row = _get_vip(email)
+    if row is not None:
+        return row.rate_limit
+    return default_rate_limit()
 
 
 # --- rate-limit log --------------------------------------------------------
 
 def log_download(uid: str, email: str | None, url: str) -> None:
-    """Record one served download (drives the per-user rate limit)."""
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO download_log (uid, email, url, created_at) VALUES (?, ?, ?, ?)",
-            (uid, email, url, _iso(_now())),
-        )
+    with Session(_engine()) as s:
+        s.add(DownloadLogRow(uid=uid, email=email, url=url, created_at=_now()))
+        s.commit()
 
 
 def count_recent_downloads(uid: str, window_seconds: int) -> int:
-    """How many downloads ``uid`` has made within the last ``window_seconds``."""
-    cutoff = _iso(_now() - timedelta(seconds=window_seconds))
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM download_log WHERE uid = ? AND created_at >= ?",
-            (uid, cutoff),
-        ).fetchone()
-        return int(row["n"])
+    cutoff = _now() - timedelta(seconds=window_seconds)
+    with Session(_engine()) as s:
+        return int(
+            s.scalar(
+                select(func.count())
+                .select_from(DownloadLogRow)
+                .where(DownloadLogRow.uid == uid, DownloadLogRow.created_at >= cutoff)
+            )
+            or 0
+        )

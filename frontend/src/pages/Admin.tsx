@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { addVip, listVips, removeVip, type Vip } from '../api'
+import { addVip, listVips, removeVip, updateVip, type Vip } from '../api'
 import AsciiLogo from '../components/AsciiLogo'
 import './Admin.scss'
+
+// Parse a rate-limit input box: blank/"unlimited" -> null (∞), else a number.
+function parseLimit(raw: string): number | null {
+  const t = raw.trim().toLowerCase()
+  if (t === '' || t === 'unlimited' || t === 'inf' || t === '∞') return null
+  const n = Number(t)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+}
 
 // Admin-only dashboard for the VIP group (rate-limit-exempt users). Reached via
 // the #/admin hash route; the backend gates the API to admins (403 otherwise).
@@ -13,6 +21,7 @@ export default function Admin() {
   const [email, setEmail] = useState('')
   const [note, setNote] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [limit, setLimit] = useState('')
 
   const onListChange = (list: Vip[]) => qc.setQueryData(['vips'], list)
 
@@ -23,14 +32,25 @@ export default function Admin() {
       setEmail('')
       setNote('')
       setIsAdmin(false)
+      setLimit('')
     },
   })
   const remove = useMutation({ mutationFn: removeVip, onSuccess: onListChange })
+  const update = useMutation({
+    mutationFn: ({ email, rate_limit }: { email: string; rate_limit: number | null }) =>
+      updateVip(email, { rate_limit }),
+    onSuccess: onListChange,
+  })
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim()) return
-    add.mutate({ email: email.trim(), note: note.trim() || undefined, is_admin: isAdmin })
+    add.mutate({
+      email: email.trim(),
+      note: note.trim() || undefined,
+      is_admin: isAdmin,
+      rate_limit: parseLimit(limit),
+    })
   }
 
   return (
@@ -72,6 +92,16 @@ export default function Admin() {
                   onChange={(e) => setNote(e.target.value)}
                 />
               </div>
+              <div className="admin__limit-field">
+                <label htmlFor="vip-limit">rate limit / hr</label>
+                <input
+                  id="vip-limit"
+                  value={limit}
+                  spellCheck={false}
+                  placeholder="∞"
+                  onChange={(e) => setLimit(e.target.value)}
+                />
+              </div>
             </div>
 
             <label className="admin__check">
@@ -99,7 +129,8 @@ export default function Admin() {
             status={vips.status}
             error={vips.error}
             onRemove={(e) => remove.mutate(e)}
-            removing={remove.isPending}
+            onSetLimit={(email, rate_limit) => update.mutate({ email, rate_limit })}
+            busy={remove.isPending || update.isPending}
           />
         </div>
       </div>
@@ -112,13 +143,15 @@ function Roster({
   status,
   error,
   onRemove,
-  removing,
+  onSetLimit,
+  busy,
 }: {
   vips: Vip[] | undefined
   status: 'pending' | 'error' | 'success'
   error: unknown
   onRemove: (email: string) => void
-  removing: boolean
+  onSetLimit: (email: string, rate_limit: number | null) => void
+  busy: boolean
 }) {
   if (status === 'pending') return <p className="admin__note">&gt; loading roster…</p>
   if (status === 'error') {
@@ -136,6 +169,7 @@ function Roster({
         <tr>
           <th>email</th>
           <th>role</th>
+          <th>rate limit / hr</th>
           <th>note</th>
           <th />
         </tr>
@@ -145,13 +179,16 @@ function Roster({
           <tr key={v.email}>
             <td>{v.email}</td>
             <td>{v.is_admin ? 'admin' : 'vip'}</td>
+            <td>
+              <LimitCell
+                value={v.rate_limit}
+                busy={busy}
+                onSave={(rate_limit) => onSetLimit(v.email, rate_limit)}
+              />
+            </td>
             <td>{v.note ?? '—'}</td>
             <td>
-              <button
-                className="admin__remove"
-                disabled={removing}
-                onClick={() => onRemove(v.email)}
-              >
+              <button className="admin__remove" disabled={busy} onClick={() => onRemove(v.email)}>
                 remove
               </button>
             </td>
@@ -159,5 +196,40 @@ function Roster({
         ))}
       </tbody>
     </table>
+  )
+}
+
+// Inline editor for a single VIP's rate limit. Blank/"unlimited" -> ∞ (null).
+function LimitCell({
+  value,
+  busy,
+  onSave,
+}: {
+  value: number | null
+  busy: boolean
+  onSave: (rate_limit: number | null) => void
+}) {
+  const [draft, setDraft] = useState(value === null ? '' : String(value))
+  const dirty = (parseLimit(draft) ?? null) !== value
+
+  return (
+    <span className="admin__limit">
+      <input
+        className="admin__limit-input"
+        value={draft}
+        spellCheck={false}
+        placeholder="∞"
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      {dirty && (
+        <button
+          className="admin__limit-save"
+          disabled={busy}
+          onClick={() => onSave(parseLimit(draft))}
+        >
+          save
+        </button>
+      )}
+    </span>
   )
 }
