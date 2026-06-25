@@ -1,7 +1,7 @@
 """API tests for the DB-backed features: track cache, rate limiting, VIP admin.
 
-The ``isolated_db`` autouse fixture (conftest) gives each test a fresh SQLite
-file. Downloads are mocked so nothing hits the network.
+The ``isolated_db`` autouse fixture (conftest) gives each test fresh, isolated
+Postgres tables. Downloads are mocked so nothing hits the network.
 """
 
 # pylint: disable=missing-function-docstring,redefined-outer-name
@@ -12,7 +12,6 @@ import pytest
 
 from clazzziks import auth, db
 from clazzziks.auth import AuthUser
-from clazzziks.formats import AudioFormat
 from clazzziks.downloader import DownloadResult
 
 

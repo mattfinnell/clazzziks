@@ -1,7 +1,8 @@
-"""Unit tests for the SQLite store (``clazzziks.db``).
+"""Unit tests for the Postgres data layer (``clazzziks.db``).
 
-The ``isolated_db`` autouse fixture (conftest) points ``CLAZZZIKS_DB_PATH`` at a
-fresh temp file per test, so these run with empty, isolated tables.
+The ``isolated_db`` autouse fixture (conftest) points ``CLAZZZIKS_DATABASE_URL``
+at the ``clazzziks_test`` database and truncates all tables per test, so these
+run with empty, isolated tables.
 """
 
 # pylint: disable=missing-function-docstring

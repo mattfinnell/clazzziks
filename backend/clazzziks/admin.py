@@ -1,9 +1,9 @@
-"""``clazzziks-db`` — a tiny CLI to manage the SQLite store from the shell.
+"""``clazzziks-db`` — a tiny CLI to manage the Postgres store from the shell.
 
 Mainly for bootstrapping/managing the VIP group without going through the admin
 dashboard (e.g. on a fresh server, or to promote the first admin):
 
-    clazzziks-db init                         # create the db file + tables
+    clazzziks-db init                         # create the tables (+ owner seed)
     clazzziks-db vip ls                       # list the VIP group
     clazzziks-db vip add you@example.com      # add a VIP (unlimited)
     clazzziks-db vip add boss@x.com --admin --note "owner"
@@ -80,11 +80,11 @@ def _cmd_vip_rm(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="clazzziks-db", description="Manage the CLAZZZIKS SQLite store."
+        prog="clazzziks-db", description="Manage the CLAZZZIKS Postgres store."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="Create the database file and tables.").set_defaults(
+    sub.add_parser("init", help="Create the database tables (and owner seed).").set_defaults(
         func=_cmd_init
     )
 

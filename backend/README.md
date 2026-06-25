@@ -74,8 +74,11 @@ CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload
 ```
 backend/
 ├── clazzziks/
-│   ├── web.py              # FastAPI app + /api routes
+│   ├── web.py              # FastAPI app + /api routes (cache, rate limit, admin)
 │   ├── cli.py              # clazzziks CLI entry point
+│   ├── admin.py            # clazzziks-db CLI (manage the VIP group from the shell)
+│   ├── auth.py             # Firebase token verification + require_user/require_admin
+│   ├── db.py               # SQLAlchemy ORM over Postgres (cache, VIP, rate-limit log)
 │   ├── downloader/
 │   │   ├── base.py         # Downloader ABC + shared yt-dlp pipeline
 │   │   ├── youtube.py
@@ -85,11 +88,15 @@ backend/
 │   ├── formats.py          # AudioFormat enum + bitrate rules
 │   ├── inputs.py           # URL/batch input parsing
 │   ├── sources.py          # platform detection + Spotify metadata resolution
+│   ├── logging_config.py   # structured (json/text/pretty) logging setup
 │   ├── contract.py         # loads openapi.json
 │   └── openapi.json        # shared API contract (frontend + backend source of truth)
 ├── tests/
-│   ├── conftest.py         # FastAPI TestClient fixture
+│   ├── conftest.py         # FastAPI TestClient fixture + isolated Postgres tables
 │   ├── test_web.py         # API route tests (mocked downloaders)
+│   ├── test_auth.py        # Firebase auth dependency tests
+│   ├── test_db.py          # data-layer unit tests (cache, VIP, rate limit)
+│   ├── test_vip_api.py     # DB-backed API tests (cache, rate limit, VIP admin)
 │   ├── test_contract.py    # openapi.json conformance tests
 │   ├── test_units.py       # unit tests
 │   ├── test_e2e.py         # real-network downloader e2e tests (pytest -m e2e)
@@ -107,9 +114,16 @@ backend/
 | `GET` | `/api/health` | `{"status": "ok"}` |
 | `GET` | `/api/formats` | Supported formats + defaults |
 | `GET` | `/api/openapi.json` | Shared API contract document |
+| `GET` | `/api/me` | Caller's VIP/admin status + effective rate limit |
+| `GET` | `/api/admin/vips` | List the VIP group (admin only) |
+| `POST` | `/api/admin/vips` | Add/update a VIP (admin only) |
+| `PATCH` | `/api/admin/vips/{email}` | Set a VIP's rate limit (admin only) |
+| `DELETE` | `/api/admin/vips/{email}` | Remove a VIP (admin only) |
 | `POST` | `/api/download` | Download one track or a ZIP bundle |
 
-The full contract is defined in `clazzziks/openapi.json`.
+The full contract is defined in `clazzziks/openapi.json`. See the Database and
+Authentication sections of `CLAUDE.md` for the cache, VIP group, and rate-limit
+behaviour behind these routes.
 
 ## Authentication
 
