@@ -86,6 +86,81 @@ function filenameFromResponse(resp: Response): string {
   return match ? decodeURIComponent(match[1]) : 'clazzziks-download'
 }
 
+// --- caller status + VIP admin ---------------------------------------------
+
+export interface Me {
+  email: string | null
+  is_vip: boolean
+  is_admin: boolean
+  anonymous: boolean
+  rate_limit: number | null
+}
+
+export interface Vip {
+  email: string
+  is_admin: boolean
+  note: string | null
+  rate_limit: number | null
+  added_at: string
+}
+
+async function jsonOrThrow<T>(resp: Response): Promise<T> {
+  if (!resp.ok) {
+    let message = resp.statusText
+    try {
+      message = (await resp.json()).error || message
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(message)
+  }
+  return resp.json() as Promise<T>
+}
+
+export async function fetchMe(): Promise<Me> {
+  const resp = await fetch(`${API_BASE}/me`, { headers: await authHeaders() })
+  return jsonOrThrow<Me>(resp)
+}
+
+export async function listVips(): Promise<Vip[]> {
+  const resp = await fetch(`${API_BASE}/admin/vips`, { headers: await authHeaders() })
+  return (await jsonOrThrow<{ vips: Vip[] }>(resp)).vips
+}
+
+export async function addVip(input: {
+  email: string
+  note?: string
+  is_admin?: boolean
+  rate_limit?: number | null
+}): Promise<Vip[]> {
+  const resp = await fetch(`${API_BASE}/admin/vips`, {
+    method: 'POST',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return (await jsonOrThrow<{ vips: Vip[] }>(resp)).vips
+}
+
+export async function updateVip(
+  email: string,
+  changes: { note?: string | null; is_admin?: boolean; rate_limit?: number | null },
+): Promise<Vip[]> {
+  const resp = await fetch(`${API_BASE}/admin/vips/${encodeURIComponent(email)}`, {
+    method: 'PATCH',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  })
+  return (await jsonOrThrow<{ vips: Vip[] }>(resp)).vips
+}
+
+export async function removeVip(email: string): Promise<Vip[]> {
+  const resp = await fetch(`${API_BASE}/admin/vips/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+  return (await jsonOrThrow<{ vips: Vip[] }>(resp)).vips
+}
+
 export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

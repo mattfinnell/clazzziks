@@ -59,6 +59,11 @@ Thumbs.db
 firebase-service-account*.json
 *serviceAccount*.json
 
+# SQLite store (cache / VIP group / rate-limit log) — local state, not source
+*.db
+*.db-wal
+*.db-shm
+
 # Local tooling / machine-specific
 .claude/
 .config-host/

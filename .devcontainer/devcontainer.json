@@ -1,8 +1,8 @@
 {
   "name": "clazzziks",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/clazzziks",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "lts"
@@ -41,10 +41,11 @@
       }
     }
   },
-  "forwardPorts": [5173, 5000],
+  "forwardPorts": [5173, 5000, 5432],
   "portsAttributes": {
     "5173": { "label": "Vite dev server" },
-    "5000": { "label": "FastAPI backend" }
+    "5000": { "label": "FastAPI backend" },
+    "5432": { "label": "Postgres" }
   },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "remoteUser": "vscode"

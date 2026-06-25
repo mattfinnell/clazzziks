@@ -24,8 +24,11 @@ _SPREADSHEET = "https://docs.google.com/spreadsheets/d/10RrB0I_0g7bZGTjGCqo7X72B
 
 @pytest.fixture(scope="module")
 def live_client():
-    # Generous timeout: real downloads can take tens of seconds.
-    return TestClient(create_app(), timeout=300.0)  # pylint: disable=unexpected-keyword-arg
+    # Generous timeout: real downloads can take tens of seconds. TestClient
+    # doesn't accept a timeout kwarg, so set it on the underlying httpx client.
+    client = TestClient(create_app())
+    client.timeout = 300.0
+    return client
 
 
 # --- single file ------------------------------------------------------------

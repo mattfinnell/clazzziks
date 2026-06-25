@@ -5,10 +5,15 @@
 Always prefix with `uv run` from `backend/`:
 
 ```bash
-uv run pytest                  # unit + contract tests
+# In the devcontainer, Postgres runs automatically as the `db` service and
+# CLAZZZIKS_DATABASE_URL / CLAZZZIKS_TEST_DATABASE_URL are already exported.
+# Outside the devcontainer, start Postgres yourself from the repo root:
+docker compose up -d db        # Postgres — required for tests/app
+uv run pytest                  # unit + contract tests (need Postgres up)
 uv run pytest -m e2e -v        # real-network e2e tests
 uv run clazzziks-web --reload  # dev server (JSON logs, default)
 CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload  # coloured dev logs
+uv run clazzziks-db vip ls     # manage the VIP group / rate limits
 ```
 
 ## Adding a new platform downloader
@@ -45,6 +50,48 @@ network (see `tests/test_auth.py`).
   `{"error": ...}` contract shape (so `401`/`403` match the `Error` schema).
 - When adding a protected route, add its `security` + `401`/`403` responses to
   `openapi.json` (the `firebaseToken` bearer scheme is already defined there).
+
+## Database (cache, VIP group, rate limiting)
+
+`clazzziks/db.py` is a **SQLAlchemy ORM** layer over **Postgres**. Connection from
+`CLAZZZIKS_DATABASE_URL` (default = the local `docker compose up -d db` Postgres),
+read lazily; the engine is cached per-URL so tests can point at another database.
+Public functions return small frozen dataclasses (`CachedTrack`, `Vip`) — callers
+never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first use):
+
+- **`track_cache`** — keyed by `(url, fmt)` (download source + file type). `web.py`
+  checks it before a single-link download and re-serves the existing file on a hit
+  (a stale row whose file is gone is pruned → miss). Bundle items are cached too.
+- **`vip`** — rate-limit policy per user: `is_admin` flag + nullable `rate_limit`
+  (**NULL = unlimited**, the default for a VIP). The owner (`CLAZZZIKS_ADMIN_EMAIL`,
+  default `mattfinnell104@gmail.com`) is **seeded as admin whenever the group is
+  empty** (including after a removal empties it), so you can't lock yourself out.
+- **`download_log`** — one row per served download; drives the rate-limit count.
+
+**Rate limiting is FastAPI middleware** (`_rate_limit` in `web.py`'s `create_app`),
+enforced before any work on `POST /api/download`. `db.effective_rate_limit(email)`
+resolves the cap: a normal user gets `CLAZZZIKS_RATE_LIMIT` (default **20**) per
+`CLAZZZIKS_RATE_WINDOW_SECONDS` (default 3600); a VIP gets their configured
+`rate_limit` (unlimited unless an admin set a number). Over the cap → **429**. The
+middleware only *enforces* (pre-check); the handler *records* each downloaded track
+via `db.log_download`, so the count reflects what was actually served. Open/dev mode
+(auth not configured) is anonymous and unlimited.
+
+**VIP is distinct from the auth allowlist.** `CLAZZZIKS_ALLOWED_EMAILS` (in
+`auth.py`) gates *access* (403); the VIP group governs *rate-limit policy*.
+
+**Admin surface:** `require_admin` (in `auth.py`) gates `GET/POST /api/admin/vips`,
+`PATCH /api/admin/vips/{email}` (set a VIP's rate limit), `DELETE …` to DB admins
+(anonymous in open mode). `GET /api/me` reports the caller's VIP/admin status +
+effective `rate_limit` to the React `#/admin` dashboard (`frontend/`). Shell admin:
+`clazzziks-db vip add|limit|rm|ls` (`clazzziks/admin.py`).
+
+**Tests need a live Postgres** — automatic inside the devcontainer (the `db`
+service from `.devcontainer/docker-compose.yml` + the repo-root `docker-compose.yml`),
+or `docker compose up -d db` outside it. The `isolated_db` autouse fixture
+(`tests/conftest.py`) truncates all tables between tests against the `clazzziks_test`
+database (`CLAZZZIKS_TEST_DATABASE_URL`, auto-created if missing). See
+`tests/test_db.py` and `tests/test_vip_api.py`.
 
 ## Test patterns
 

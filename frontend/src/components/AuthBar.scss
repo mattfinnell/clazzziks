@@ -18,6 +18,34 @@
     color: var(--green);
   }
 
+  &__badge {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+
+  &__nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  &__link {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    text-decoration: none;
+
+    &::before { content: '[ '; }
+    &::after { content: ' ]'; }
+
+    &:hover { text-shadow: 0 0 6px var(--green); }
+  }
+
   &__signout {
     flex-shrink: 0;
     font-family: var(--mono);
