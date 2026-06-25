@@ -1,0 +1,25 @@
+# Dev container topology. This file is merged on top of the repo-root
+# docker-compose.yml (see devcontainer.json `dockerComposeFile`), which defines
+# the `db` (Postgres) service. Running the workspace container ("app") and `db`
+# under one compose project puts them on the same network, so the backend reaches
+# Postgres at `db:5432` with no manual `docker network connect` — and the
+# Postgres data volume persists across devcontainer rebuilds.
+services:
+  app:
+    build:
+      # Relative paths resolve against the compose project directory, which is the
+      # repo root (the directory of the first file in devcontainer.json's
+      # dockerComposeFile list), so `.` is the repo root.
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspaces/clazzziks:cached
+    # Keep the container alive; the devcontainer attaches to it.
+    command: sleep infinity
+    environment:
+      # The whole app + test suite read these — no per-shell export needed.
+      CLAZZZIKS_DATABASE_URL: postgresql+psycopg://clazzziks:clazzziks@db:5432/clazzziks
+      CLAZZZIKS_TEST_DATABASE_URL: postgresql+psycopg://clazzziks:clazzziks@db:5432/clazzziks_test
+    depends_on:
+      db:
+        condition: service_healthy

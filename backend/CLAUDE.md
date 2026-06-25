@@ -5,7 +5,10 @@
 Always prefix with `uv run` from `backend/`:
 
 ```bash
-docker compose up -d db        # Postgres (from repo root) — required for tests/app
+# In the devcontainer, Postgres runs automatically as the `db` service and
+# CLAZZZIKS_DATABASE_URL / CLAZZZIKS_TEST_DATABASE_URL are already exported.
+# Outside the devcontainer, start Postgres yourself from the repo root:
+docker compose up -d db        # Postgres — required for tests/app
 uv run pytest                  # unit + contract tests (need Postgres up)
 uv run pytest -m e2e -v        # real-network e2e tests
 uv run clazzziks-web --reload  # dev server (JSON logs, default)
@@ -83,10 +86,12 @@ via `db.log_download`, so the count reflects what was actually served. Open/dev 
 effective `rate_limit` to the React `#/admin` dashboard (`frontend/`). Shell admin:
 `clazzziks-db vip add|limit|rm|ls` (`clazzziks/admin.py`).
 
-**Tests need a live Postgres** (`docker compose up -d db`). The `isolated_db`
-autouse fixture (`tests/conftest.py`) truncates all tables between tests against the
-`clazzziks_test` database (`CLAZZZIKS_TEST_DATABASE_URL`). See `tests/test_db.py`
-and `tests/test_vip_api.py`.
+**Tests need a live Postgres** — automatic inside the devcontainer (the `db`
+service from `.devcontainer/docker-compose.yml` + the repo-root `docker-compose.yml`),
+or `docker compose up -d db` outside it. The `isolated_db` autouse fixture
+(`tests/conftest.py`) truncates all tables between tests against the `clazzziks_test`
+database (`CLAZZZIKS_TEST_DATABASE_URL`, auto-created if missing). See
+`tests/test_db.py` and `tests/test_vip_api.py`.
 
 ## Test patterns
 
