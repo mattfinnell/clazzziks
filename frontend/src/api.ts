@@ -105,6 +105,27 @@ export interface Vip {
   added_at: string
 }
 
+export interface User {
+  email: string | null
+  name: string | null
+  email_verified: boolean
+  disabled: boolean
+  created_at: string | null
+  last_sign_in: string | null
+  provider: string | null
+  is_vip: boolean
+  is_admin: boolean
+  rate_limit: number | null
+  used_this_window: number
+}
+
+export interface UserList {
+  users: User[]
+  window_seconds: number
+  auth_configured: boolean
+  last_synced_at: string | null
+}
+
 async function jsonOrThrow<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     let message = resp.statusText
@@ -126,6 +147,19 @@ export async function fetchMe(): Promise<Me> {
 export async function listVips(): Promise<Vip[]> {
   const resp = await fetch(`${API_BASE}/admin/vips`, { headers: await authHeaders() })
   return (await jsonOrThrow<{ vips: Vip[] }>(resp)).vips
+}
+
+export async function listUsers(): Promise<UserList> {
+  const resp = await fetch(`${API_BASE}/admin/users`, { headers: await authHeaders() })
+  return jsonOrThrow<UserList>(resp)
+}
+
+export async function syncUsers(): Promise<UserList> {
+  const resp = await fetch(`${API_BASE}/admin/users/sync`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  })
+  return jsonOrThrow<UserList>(resp)
 }
 
 export async function addVip(input: {

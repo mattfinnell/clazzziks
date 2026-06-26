@@ -51,6 +51,20 @@ class AuthUser:
     anonymous: bool = False
 
 
+@dataclass(frozen=True)
+class FirebaseUser:
+    """A Firebase Auth account as seen by the admin dashboard's user list."""
+
+    uid: str
+    email: str | None
+    name: str | None
+    email_verified: bool
+    disabled: bool
+    created_at: str | None  # ISO-8601 UTC, or None if Firebase didn't report it
+    last_sign_in: str | None
+    provider: str | None  # e.g. "google.com", "password"
+
+
 def auth_disabled() -> bool:
     return os.environ.get("CLAZZZIKS_AUTH_DISABLED", "").lower() in _TRUE
 
@@ -133,6 +147,51 @@ def verify_token(id_token: str) -> AuthUser:
     )
 
 
+def _ms_to_iso(ms: int | None) -> str | None:
+    """Firebase reports timestamps as epoch milliseconds; render them as ISO UTC."""
+    if not ms:
+        return None
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
+
+
+def list_users() -> list[FirebaseUser]:
+    """Return every Firebase Auth account, or ``[]`` when Firebase isn't usable.
+
+    Pages through the Admin SDK (1000 rows/page via ``iterate_all``) and maps each
+    record to a :class:`FirebaseUser`. Any failure (no credential, transient error)
+    is logged and returns ``[]`` so the admin dashboard degrades gracefully instead
+    of 500-ing. This is the single seam the tests monkeypatch.
+    """
+    app = _get_firebase_app()
+    if app is None:
+        return []
+    try:
+        from firebase_admin import auth as fb_auth
+
+        users: list[FirebaseUser] = []
+        for u in fb_auth.list_users(app=app).iterate_all():
+            meta = u.user_metadata
+            provider = u.provider_data[0].provider_id if u.provider_data else None
+            users.append(
+                FirebaseUser(
+                    uid=u.uid,
+                    email=u.email,
+                    name=u.display_name,
+                    email_verified=bool(u.email_verified),
+                    disabled=bool(u.disabled),
+                    created_at=_ms_to_iso(getattr(meta, "creation_timestamp", None)),
+                    last_sign_in=_ms_to_iso(getattr(meta, "last_sign_in_timestamp", None)),
+                    provider=provider,
+                )
+            )
+        return users
+    except Exception as exc:  # noqa: BLE001 - never let a listing error crash the dashboard
+        logger.error("firebase list_users failed: %s", exc)
+        return []
+
+
 def _bearer_token(request: Request) -> str | None:
     header = request.headers.get("authorization") or request.headers.get("Authorization")
     if not header:
@@ -207,6 +266,7 @@ async def require_admin(request: Request) -> AuthUser:
 
 # Re-export so handlers can write `user: AuthUser = Depends(require_user)`.
 __all__ = [
-    "AuthUser", "require_user", "require_admin", "resolve_optional_user",
-    "verify_token", "auth_configured", "Depends",
+    "AuthUser", "FirebaseUser", "require_user", "require_admin",
+    "resolve_optional_user", "verify_token", "list_users", "auth_configured",
+    "Depends",
 ]

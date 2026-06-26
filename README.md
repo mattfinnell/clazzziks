@@ -139,11 +139,14 @@ allowlist.
 
 3. In the Firebase Console, enable **Authentication → Sign-in method → Google**.
 
-> **Note:** the backend reads real environment variables and does **not**
-> auto-load `backend/.env`. Export it before starting the server:
+> **Note:** `uv run api` auto-loads `backend/.env` (existing environment
+> variables win, so nothing exported or preset is clobbered). Run it from
+> `backend/` so the relative `CLAZZZIKS_FIREBASE_CREDENTIALS` path resolves:
 > ```bash
-> cd backend && set -a && source .env && set +a && uv run api --port 5000
+> cd backend && uv run api --port 5000
 > ```
+> Other entry points (`uvicorn clazzziks.api:app`, the test suite) do **not**
+> auto-load `.env` — export the vars yourself there.
 
 Token verification lives in `backend/clazzziks/auth.py` (`require_user`
 dependency); the frontend auth flow is in `frontend/src/auth/AuthContext.tsx` and

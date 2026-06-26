@@ -9,6 +9,10 @@
   --green-dim: #1f9c47;
   --green-faint: #0e3d1c;
   --amber: #ffcf4d;
+  // Gold — reserved for VIP accents (borders / badges).
+  --gold: #ffd24a;
+  --gold-dim: #c79a1f;
+  --gold-glow: rgba(255, 210, 74, 0.5);
   --red: #ff5f56;
   --text: #33ff66;
   --muted: #1f9c47;
@@ -121,4 +125,62 @@ a {
   letter-spacing: 1px;
   color: var(--green-faint);
   border-top: 1px solid var(--green-faint);
+}
+
+// VIP / admin consoles: the panel frame flows with a green↔gold gradient instead
+// of the static green border. Built like the banner — a gradient layer painted on
+// the (transparent) border via border-box, over a solid interior on padding-box,
+// with the gradient's position animated so the colours sweep around the frame.
+// The gradient starts and ends on the same colour so the loop is seamless.
+.crt--vip,
+.crt--admin {
+  .downloader__window,
+  .admin__window {
+    border: 2px solid transparent;
+    background:
+      linear-gradient(var(--bg-soft), var(--bg-soft)) padding-box,
+      linear-gradient(
+        115deg,
+        var(--green) 0%,
+        var(--gold) 25%,
+        var(--green-dim) 50%,
+        var(--gold) 75%,
+        var(--green) 100%
+      ) border-box;
+    background-size: 100% 100%, 220% 100%;
+    animation: console-flow 9s linear infinite;
+  }
+}
+
+// Admins get a gold-dominant, faster sweep.
+.crt--admin {
+  .downloader__window,
+  .admin__window {
+    background:
+      linear-gradient(var(--bg-soft), var(--bg-soft)) padding-box,
+      linear-gradient(
+        115deg,
+        var(--gold) 0%,
+        var(--green) 28%,
+        var(--gold) 52%,
+        #fff3b0 70%,
+        var(--gold) 100%
+      ) border-box;
+    background-size: 100% 100%, 220% 100%;
+    animation-duration: 6s;
+  }
+}
+
+@keyframes console-flow {
+  from { background-position: 0 0, 0% 50%; }
+  to { background-position: 0 0, 220% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt--vip .downloader__window,
+  .crt--vip .admin__window,
+  .crt--admin .downloader__window,
+  .crt--admin .admin__window {
+    animation: none;
+  }
 }

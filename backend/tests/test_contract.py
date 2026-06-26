@@ -85,3 +85,21 @@ def test_error_responses_conform(client, payload):
     resp = client.post("/api/download", data=payload)
     assert resp.status_code == 400
     _validate(resp.json(), "Error")
+
+
+def test_admin_users_response_conforms(client, monkeypatch):
+    # Open mode: the local caller is admin. Mock the Firebase listing so the
+    # response carries a populated User row to validate against the contract.
+    from clazzziks.auth import FirebaseUser
+
+    monkeypatch.setattr(
+        "clazzziks.api.list_firebase_users",
+        lambda: [FirebaseUser(
+            uid="u1", email="a@b.com", name="A", email_verified=True,
+            disabled=False, created_at="2026-01-01T00:00:00+00:00",
+            last_sign_in=None, provider="password",
+        )],
+    )
+    resp = client.get("/api/admin/users")
+    assert resp.status_code == 200
+    _validate(resp.json(), "UserList")

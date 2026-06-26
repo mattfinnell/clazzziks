@@ -220,6 +220,60 @@
         }
       }
     },
+    "/admin/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "List all Firebase users with VIP/throttle state (admin only).",
+        "security": [{ "firebaseToken": [] }],
+        "responses": {
+          "200": {
+            "description": "All users merged with VIP state and current usage.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not an admin.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/admin/users/sync": {
+      "post": {
+        "operationId": "syncUsers",
+        "summary": "Sync all users from Firebase into Postgres (admin only).",
+        "security": [{ "firebaseToken": [] }],
+        "responses": {
+          "200": {
+            "description": "The refreshed user list after syncing from Firebase.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not an admin.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/admin/vips/{email}": {
       "patch": {
         "operationId": "updateVip",
@@ -411,6 +465,51 @@
           "vips": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/Vip" }
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email", "name", "email_verified", "disabled", "created_at",
+          "last_sign_in", "provider", "is_vip", "is_admin", "rate_limit",
+          "used_this_window"
+        ],
+        "properties": {
+          "email": { "type": ["string", "null"] },
+          "name": { "type": ["string", "null"] },
+          "email_verified": { "type": "boolean" },
+          "disabled": { "type": "boolean" },
+          "created_at": { "type": ["string", "null"] },
+          "last_sign_in": { "type": ["string", "null"] },
+          "provider": { "type": ["string", "null"] },
+          "is_vip": { "type": "boolean" },
+          "is_admin": { "type": "boolean" },
+          "rate_limit": {
+            "type": ["integer", "null"],
+            "description": "Per-user tracks-per-window cap; null means unlimited."
+          },
+          "used_this_window": {
+            "type": "integer",
+            "description": "Tracks the user has downloaded in the current rate-limit window."
+          }
+        }
+      },
+      "UserList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["users", "window_seconds", "auth_configured", "last_synced_at"],
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/User" }
+          },
+          "window_seconds": { "type": "integer" },
+          "auth_configured": { "type": "boolean" },
+          "last_synced_at": {
+            "type": ["string", "null"],
+            "description": "ISO-8601 timestamp of the last Firebase→Postgres user sync; null if never synced."
           }
         }
       },

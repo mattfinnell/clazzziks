@@ -101,9 +101,6 @@
     text-shadow: inherit;
     transition: background 0.1s, color 0.1s;
 
-    &::before { content: '[ '; }
-    &::after { content: ' ]'; }
-
     &:hover:not(:disabled) {
       background: var(--green);
       color: #001a00;
@@ -147,5 +144,13 @@
     &--online i { color: #006e21; }
     &--offline i { color: var(--red); }
     &--checking i { animation: blink 1s steps(2, start) infinite; }
+  }
+
+  @media (max-width: 600px) {
+    padding: 12px;
+
+    &__body { padding: 20px 16px; }
+    &__row { flex-direction: column; gap: 0; }
+    &__titlebar { font-size: 11px; }
   }
 }

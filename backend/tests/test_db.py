@@ -7,6 +7,8 @@ run with empty, isolated tables.
 
 # pylint: disable=missing-function-docstring
 
+from dataclasses import dataclass
+
 import pytest
 
 from clazzziks import db
@@ -143,3 +145,43 @@ def test_count_recent_downloads_respects_window():
     assert db.count_recent_downloads("u1", 3600) == 2
     assert db.count_recent_downloads("u2", 3600) == 1
     assert db.count_recent_downloads("nobody", 3600) == 0
+
+
+# --- user mirror (Firebase -> Postgres sync) -------------------------------
+
+@dataclass(frozen=True)
+class _FbUser:
+    uid: str
+    email: str | None
+    name: str | None
+    email_verified: bool = True
+    disabled: bool = False
+    created_at: str | None = None
+    last_sign_in: str | None = None
+    provider: str | None = "password"
+
+
+def test_sync_users_upserts_and_lists():
+    assert db.synced_user_count() == 0
+    assert db.last_synced_at() is None
+
+    n = db.sync_users([
+        _FbUser(uid="a1", email="a@x.com", name="A"),
+        _FbUser(uid="b2", email="b@x.com", name="B", disabled=True),
+    ])
+    assert n == 2
+    assert db.synced_user_count() == 2
+    assert db.last_synced_at() is not None
+
+    rows = {u.uid: u for u in db.list_synced_users()}
+    assert rows["a1"].email == "a@x.com" and rows["a1"].name == "A"
+    assert rows["b2"].disabled is True
+
+
+def test_sync_users_overwrites_existing_by_uid():
+    db.sync_users([_FbUser(uid="a1", email="old@x.com", name="Old")])
+    db.sync_users([_FbUser(uid="a1", email="new@x.com", name="New")])
+
+    rows = db.list_synced_users()
+    assert len(rows) == 1  # same uid -> updated in place, not duplicated
+    assert rows[0].email == "new@x.com" and rows[0].name == "New"
