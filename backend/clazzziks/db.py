@@ -134,19 +134,27 @@ def _now() -> datetime:
 
 
 def _seed_admin(engine: Engine) -> None:
-    """Seed the owner as admin whenever the VIP group is empty (anti-lockout).
+    """Ensure the owner (``CLAZZZIKS_ADMIN_EMAIL``) is always a VIP **and** admin.
 
-    No-op when no admin email is configured — there is no built-in default.
+    Runs on every startup/deploy and is idempotent: the owner is upserted into the
+    VIP group with ``is_admin=True`` so they are both VIP (a row exists) and admin,
+    and can never be locked out — even on a database that already has other VIPs.
+    An existing owner row keeps its configured ``rate_limit`` (unlimited by default)
+    and is only promoted to admin if needed. No-op when no admin email is set.
     """
     email = _admin_seed_email()
     if not email:
         return
     with Session(engine) as s:
-        if s.scalar(select(func.count()).select_from(VipRow)) == 0:
+        row = s.get(VipRow, email)
+        if row is None:
             s.add(VipRow(
                 email=email, is_admin=True,
                 note="seeded owner", rate_limit=None, added_at=_now(),
             ))
+            s.commit()
+        elif not row.is_admin:
+            row.is_admin = True
             s.commit()
 
 

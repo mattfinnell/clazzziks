@@ -236,6 +236,14 @@ mount /dev/nvme1n1 /data
 echo '/dev/nvme1n1 /data xfs defaults,nofail 0 2' >> /etc/fstab
 
 dnf install -y docker jq
+# Store Docker images + container layers on the 50 GiB /data volume. The AL2023
+# root volume (~8 GiB) is too small for the ffmpeg-based image — pulling it onto
+# root fails with "no space left on device", which aborts this script (set -e)
+# before nginx ever starts. data-root must be set before docker first starts.
+mkdir -p /data/docker /etc/docker
+cat > /etc/docker/daemon.json << 'DOCKEREOF'
+{ "data-root": "/data/docker" }
+DOCKEREOF
 systemctl enable docker
 systemctl start docker
 

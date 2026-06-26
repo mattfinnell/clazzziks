@@ -95,6 +95,12 @@ Add it to `index.ts`. If it needs environment-specific values, read them from
 - **EBS device name** — t3 instances are Nitro-based; the OS sees the 50 GiB
   data volume as `/dev/nvme1n1` (not `/dev/xvdf`). The user data polls for the
   device before formatting it.
+- **Docker storage lives on `/data`** — user data writes `/etc/docker/daemon.json`
+  with `data-root: /data/docker` before starting Docker, so images and container
+  layers land on the 50 GiB volume. The AL2023 root volume (~8 GiB) is too small
+  for the ffmpeg-based image; pulling onto root fails with "no space left on
+  device", which aborts the `set -e` user-data script before nginx starts (symptom:
+  port 80 dead, CloudFront 504).
 - **ECR image** — `awsx.ecr.Image` in `index.ts` builds and pushes the
   `Dockerfile` at the repo root. Docker must be running locally for `pulumi up`
   to succeed.
