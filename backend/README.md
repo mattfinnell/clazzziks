@@ -92,7 +92,7 @@ logs flow cleanly into CloudWatch.
 ```
 backend/
 ├── clazzziks/
-│   ├── web.py              # FastAPI app + /api routes (cache, rate limit, admin)
+│   ├── api.py              # FastAPI app + /api routes (cache, rate limit, admin)
 │   ├── cli.py              # clazzziks CLI entry point
 │   ├── admin.py            # clazzziks-db CLI (manage the VIP group from the shell)
 │   ├── auth.py             # Firebase token verification + require_user/require_admin
@@ -124,8 +124,8 @@ backend/
 └── uv.lock
 ```
 
-The web server writes downloads to `tracks/<request_id>/` at the **repo root**
-(two levels above `web.py`). The CLI defaults to `backend/tracks/` when invoked
+The API server writes downloads to `tracks/<request_id>/` at the **repo root**
+(two levels above `api.py`). The CLI defaults to `backend/tracks/` when invoked
 from `backend/`.
 
 ## API
