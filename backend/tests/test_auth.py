@@ -74,7 +74,7 @@ def test_download_rejects_invalid_token(client, configured, monkeypatch):
 def test_download_succeeds_with_valid_token(client, configured, tmp_path, monkeypatch):
     monkeypatch.setattr(
         "clazzziks.auth.verify_token",
-        lambda _t: AuthUser(uid="u1", email="ok@example.com", name="OK"),
+        lambda _t: AuthUser(uid="u1", email="ok@example.com", name="OK", email_verified=True),
     )
     monkeypatch.setattr("clazzziks.api.download_audio", _fake_audio(tmp_path))
 
@@ -91,7 +91,7 @@ def test_allowlist_blocks_unapproved_email(client, configured, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_ALLOWED_EMAILS", "vip@example.com")
     monkeypatch.setattr(
         "clazzziks.auth.verify_token",
-        lambda _t: AuthUser(uid="u2", email="stranger@example.com"),
+        lambda _t: AuthUser(uid="u2", email="stranger@example.com", email_verified=True),
     )
     resp = client.post(
         "/api/download",
@@ -106,7 +106,7 @@ def test_allowlist_allows_approved_email(client, configured, tmp_path, monkeypat
     monkeypatch.setenv("CLAZZZIKS_ALLOWED_EMAILS", "vip@example.com, other@example.com")
     monkeypatch.setattr(
         "clazzziks.auth.verify_token",
-        lambda _t: AuthUser(uid="u3", email="VIP@example.com"),  # case-insensitive
+        lambda _t: AuthUser(uid="u3", email="VIP@example.com", email_verified=True),  # case-insensitive
     )
     monkeypatch.setattr("clazzziks.api.download_audio", _fake_audio(tmp_path))
     resp = client.post(
@@ -115,3 +115,34 @@ def test_allowlist_allows_approved_email(client, configured, tmp_path, monkeypat
         headers={"Authorization": "Bearer good-token"},
     )
     assert resp.status_code == 200
+
+
+# --- unverified email is never honoured (account-takeover guard) ------------
+
+def test_unverified_email_is_rejected_on_protected_route(client, configured, tmp_path, monkeypatch):
+    # email/password signup yields email_verified=false; it must not be trusted.
+    monkeypatch.setattr(
+        "clazzziks.auth.verify_token",
+        lambda _t: AuthUser(uid="u9", email="spoof@example.com", email_verified=False),
+    )
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_audio(tmp_path))
+    resp = client.post(
+        "/api/download",
+        data={"links": "https://youtu.be/abc"},
+        headers={"Authorization": "Bearer good-token"},
+    )
+    assert resp.status_code == 403
+    assert "verify" in resp.json()["error"].lower()
+
+
+def test_unverified_email_cannot_escalate_to_admin(client, configured, monkeypatch):
+    # Exploit scenario: attacker registers the admin's address via password signup
+    # (unverified) and tries to inherit the seeded admin row. Must be blocked.
+    monkeypatch.setenv("CLAZZZIKS_ADMIN_EMAIL", "boss@example.com")
+    monkeypatch.setattr(
+        "clazzziks.auth.verify_token",
+        lambda _t: AuthUser(uid="attacker", email="boss@example.com", email_verified=False),
+    )
+    resp = client.get("/api/admin/users", headers={"Authorization": "Bearer good-token"})
+    assert resp.status_code == 403
+    assert "verify" in resp.json()["error"].lower()

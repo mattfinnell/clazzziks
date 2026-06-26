@@ -1,7 +1,7 @@
 # CLAZZZIKS — Backend
 
-FastAPI service that downloads audio from YouTube, SoundCloud, and Spotify and
-transcodes it via ffmpeg/yt-dlp.
+FastAPI service that downloads audio from YouTube and SoundCloud and transcodes
+it via ffmpeg/yt-dlp.
 
 ## Requirements
 
@@ -43,16 +43,17 @@ uv run clazzziks --batch "https://docs.google.com/spreadsheets/d/<id>/edit"
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-f / --format` | `mp3` | Output format: `mp3`, `wav`, `flac` |
+| `-f / --format` | `mp3` single / `flac` batch | Output format: `mp3`, `wav`, `flac` |
 | `-b / --bitrate` | `320` | MP3 target bitrate in kbps (ignored for WAV/FLAC) |
 | `-o / --outdir` | `tracks/` | Output directory |
-| `--batch` | — | Batch mode: reads URLs from a file, CSV, or Google Sheets URL |
-| `-v / --verbose` | — | Enable DEBUG logging |
+| `--batch` | — | Batch mode: treat `input` as many links (file, CSV, inline text, or Google Sheets URL) |
+| `-v / --verbose` | — | Emit structured logs to stderr: `-v` for INFO, `-vv` for DEBUG (overridden by `CLAZZZIKS_LOG_LEVEL`) |
 
 Batch mode downloads up to 4 tracks in parallel and shows a live Rich progress
 display with per-track spinners. Input accepts a text file (one URL per line),
-a CSV, inline text, or a **public** Google Sheets URL. The resulting tracks are
-packed into a single ZIP bundle.
+a CSV, inline text, or a **public** Google Sheets URL. URL-less spreadsheet rows
+(song + artist) are resolved via a `ytsearch1:` YouTube query. The resulting
+tracks are packed into a single ZIP bundle.
 
 ## Testing
 
@@ -99,13 +100,12 @@ backend/
 │   ├── db.py               # SQLAlchemy ORM over Postgres (cache, VIP, rate-limit log)
 │   ├── downloader/
 │   │   ├── base.py         # Downloader ABC + shared yt-dlp pipeline
-│   │   ├── youtube.py
-│   │   ├── soundcloud.py
-│   │   └── spotify.py      # resolves Spotify → YouTube search via oEmbed
+│   │   ├── youtube.py      # direct download; also handles ytsearch1: queries
+│   │   └── soundcloud.py
 │   ├── bundle.py           # multi-URL ZIP bundler (ThreadPoolExecutor, 4 workers)
 │   ├── formats.py          # AudioFormat enum + bitrate warning rules
 │   ├── inputs.py           # URL / batch input parsing (files, CSV, Google Sheets)
-│   ├── sources.py          # platform detection + Spotify metadata resolution
+│   ├── sources.py          # platform detection (YouTube / SoundCloud)
 │   ├── logging_config.py   # structured (json/text/pretty) logging setup
 │   ├── contract.py         # loads openapi.json
 │   └── openapi.json        # shared API contract (frontend + backend source of truth)
@@ -187,4 +187,3 @@ surfaces this automatically.
 |---|---|---|
 | YouTube | Direct yt-dlp download | CDN returns 403 in headless/cookie-less environments; max source quality ~160kbps Opus |
 | SoundCloud | Direct yt-dlp download | Many tracks are AES/DRM-encrypted and cannot be downloaded |
-| Spotify | Resolves track metadata via oEmbed → YouTube search → yt-dlp | Quality capped by the YouTube match; depends on YouTube's search ranking |

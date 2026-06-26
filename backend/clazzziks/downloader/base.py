@@ -2,8 +2,8 @@
 
 :class:`Downloader` is an abstract base that owns only the shared *orchestration*
 (the download -> transcode -> locate-output pipeline). Each concrete platform
-lives in its own module (``youtube``, ``soundcloud``, ``spotify``) and overrides
-the polymorphic hooks here. Adding a new platform means writing one more module,
+lives in its own module (``youtube``, ``soundcloud``) and overrides the
+polymorphic hooks here. Adding a new platform means writing one more module,
 nothing else.
 """
 
@@ -70,7 +70,6 @@ class _SilentLogger:
 SOURCE_LABELS = {
     Source.YOUTUBE: "YouTube",
     Source.SOUNDCLOUD: "SoundCloud",
-    Source.SPOTIFY: "Spotify",
 }
 
 
@@ -155,7 +154,7 @@ class Downloader(ABC):
             )
             raise error from exc
         except DownloadUnavailableError as exc:
-            # e.g. a search that resolved to zero results (Spotify path).
+            # e.g. a ytsearch query that resolved to zero results.
             log_event(
                 logger, logging.WARNING, "download.unavailable",
                 url=url, source=self.source.value,
@@ -211,9 +210,9 @@ class Downloader(ABC):
     def _select_result(self, info: dict, url: str) -> dict:
         """Pick the info dict to actually use from yt-dlp's output.
 
-        Direct sources return a single track, so the default is a passthrough
-        (with a defensive unwrap if a stray playlist appears). Search-based
-        sources override this — see :class:`~clazzziks.downloader.spotify`.
+        Direct page URLs return a single track, so the default is a passthrough.
+        A ``ytsearch`` query (from a sheet row with no URL) yields a playlist —
+        the unwrap below takes its top match. Subclasses may override this.
         """
         entries = self._entries(info)
         if entries is None:

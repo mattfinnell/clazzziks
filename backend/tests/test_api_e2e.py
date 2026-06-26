@@ -18,7 +18,6 @@ from clazzziks.api import create_app
 _YT          = "https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM&index=2"
 _SC          = "https://soundcloud.com/mattfinnell/lockyear"
 _SC_DRM      = "https://soundcloud.com/valante-music/ramo"
-_SPOTIFY     = "https://open.spotify.com/track/5NP0ZS263MTgqgiyEwe1Ei"
 _SPREADSHEET = "https://docs.google.com/spreadsheets/d/10RrB0I_0g7bZGTjGCqo7X72BXoLrjRBcLLwmvTOD5bg/edit?gid=0#gid=0"
 
 
@@ -54,14 +53,6 @@ def test_api_soundcloud_drm_is_422(live_client):
     resp = live_client.post("/api/download", data={"links": _SC_DRM})
     assert resp.status_code == 422
     assert "error" in resp.json()
-
-
-@pytest.mark.e2e
-def test_api_spotify_returns_mp3(live_client):
-    resp = live_client.post("/api/download", data={"links": _SPOTIFY})
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("audio/mpeg")
-    assert len(resp.content) > 0
 
 
 # --- bundle -----------------------------------------------------------------

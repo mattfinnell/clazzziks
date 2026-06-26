@@ -113,6 +113,16 @@
     }
   }
 
+  &__validation {
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--amber);
+    font-size: 13px;
+    line-height: 1.6;
+    text-shadow: 0 0 6px rgba(255, 207, 77, 0.4);
+  }
+
   &__note {
     margin-top: 16px;
     font-size: 13px;

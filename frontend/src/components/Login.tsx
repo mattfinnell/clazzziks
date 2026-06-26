@@ -34,13 +34,21 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  async function run(fn: () => Promise<void>) {
+  async function run(fn: () => Promise<string | void>) {
     setError(null)
+    setNotice(null)
     setBusy(true)
     try {
-      await fn()
+      // A returned string is an informational notice (e.g. "verify your email"),
+      // not an error — sign-in stays on this screen until the user is verified.
+      const msg = await fn()
+      if (msg) {
+        setNotice(msg)
+        setPassword('')
+      }
     } catch (err) {
       setError(explain(err))
     } finally {
@@ -145,6 +153,7 @@ export default function Login() {
           </button>
 
           {error && <p className="login__error">! ERR: {error}</p>}
+          {notice && <p className="login__notice">&gt; {notice}</p>}
         </div>
       </div>
     </div>

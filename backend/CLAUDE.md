@@ -24,7 +24,7 @@ uv run clazzziks-db vip ls     # manage the VIP group / rate limits
 4. Add the source variant to `clazzziks/sources.py` (`Source` enum + `detect_source`).
 5. Add an e2e test case in `tests/test_e2e.py` marked `@pytest.mark.e2e`.
 
-The Spotify downloader (`downloader/spotify.py`) is the reference for search-based platforms. The YouTube and SoundCloud downloaders show the direct-download pattern.
+The YouTube and SoundCloud downloaders show the direct-download pattern. YouTube also handles `ytsearch1:` queries (from URL-less spreadsheet rows), whose playlist-shaped result the base `_select_result` unwraps to the top match.
 
 ## API contract
 
@@ -45,6 +45,14 @@ open. Tests make it "configured" via env (`CLAZZZIKS_FIREBASE_PROJECT_ID`) and
 monkeypatch `clazzziks.auth.verify_token` — they never need firebase-admin or the
 network (see `tests/test_auth.py`).
 
+- **Verified email required.** The whole authz model (allowlist, admin, VIP) keys
+  off the token's `email`, so `require_user` rejects an **unverified** address with
+  `403` ("Verify your email address before continuing"). This matters because
+  email/password signup is enabled — an unverified `email` claim is attacker-chosen
+  (they could register the admin's address), so it must never be trusted. Google
+  sign-in is always verified; password accounts must confirm the emailed link first.
+  Hardening: set the Firebase project to **one account per email** and prefer
+  keeping privileged (admin) accounts on the Google provider.
 - `CLAZZZIKS_ALLOWED_EMAILS` (optional) restricts access to an allowlist → `403`.
 - Auth aborts use `HTTPException`; a handler in `api.py` renders them in the
   `{"error": ...}` contract shape (so `401`/`403` match the `Error` schema).

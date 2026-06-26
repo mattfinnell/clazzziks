@@ -3,9 +3,9 @@
 Run with:  pytest -m e2e -v
 Skip with: pytest -m "not e2e"   (the default CI run)
 
-Tests cover the full decision tree: functional download, DRM rejection,
-Spotify search-based resolution, and spreadsheet input (both the parsing
-layer and an actual download from a URL-less sheet row).
+Tests cover the full decision tree: functional download, DRM rejection, and
+spreadsheet input (both the parsing layer and an actual download from a
+URL-less sheet row, which resolves via a YouTube search).
 """
 
 import pytest
@@ -16,7 +16,6 @@ from clazzziks.inputs import collect_urls
 _YT_FUNCTIONAL = "https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM&index=2"
 _SC_FUNCTIONAL = "https://soundcloud.com/mattfinnell/lockyear"
 _SC_DRM = "https://soundcloud.com/valante-music/ramo"
-_SPOTIFY = "https://open.spotify.com/track/5NP0ZS263MTgqgiyEwe1Ei"
 _SPREADSHEET = "https://docs.google.com/spreadsheets/d/10RrB0I_0g7bZGTjGCqo7X72BXoLrjRBcLLwmvTOD5bg/edit?gid=0#gid=0"
 
 
@@ -40,13 +39,6 @@ def test_soundcloud_functional_downloads(tmp_path):
 def test_soundcloud_drm_raises_unavailable(tmp_path):
     with pytest.raises(DownloadUnavailableError):
         download_audio(_SC_DRM, fmt="mp3", outdir=tmp_path)
-
-
-@pytest.mark.e2e
-def test_spotify_downloads_via_search(tmp_path):
-    result = download_audio(_SPOTIFY, fmt="mp3", outdir=tmp_path)
-    assert result.path.exists(), "expected output file to exist on disk"
-    assert result.path.stat().st_size > 0
 
 
 # --- spreadsheet input ------------------------------------------------------

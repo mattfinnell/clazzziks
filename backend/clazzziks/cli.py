@@ -45,7 +45,7 @@ _console = Console()
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="clazzziks",
-        description="Download audio from YouTube, SoundCloud and Spotify.",
+        description="Download audio from YouTube and SoundCloud.",
     )
     parser.add_argument(
         "input",

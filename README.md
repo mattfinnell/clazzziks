@@ -1,8 +1,8 @@
 # CLAZZZIKS
 
-Audio downloader for **YouTube**, **SoundCloud**, and **Spotify**. The web utility
-and HTTP API always output **320kbps MP3** (single files and ZIP bundles alike);
-the CLI can additionally emit lossless **WAV**/**FLAC** on request.
+Audio downloader for **YouTube** and **SoundCloud**. The web utility and HTTP API
+always output **320kbps MP3** (single files and ZIP bundles alike); the CLI can
+additionally emit lossless **WAV**/**FLAC** on request.
 
 ## Project layout
 
@@ -40,9 +40,8 @@ on both halves — see [Authentication](#authentication).
 
 - **YouTube / SoundCloud** are downloaded directly with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
   and transcoded with `ffmpeg`.
-- **Spotify** streams are DRM-protected and cannot be downloaded. CLAZZZIKS reads
-  the track's public metadata via the Spotify oEmbed endpoint and finds the
-  matching recording on YouTube (the same approach `spotdl` uses).
+- **Bulk input** — paste many links, or a public Google Sheets URL; URL-less sheet
+  rows (song + artist) are resolved via a YouTube search.
 
 ## Requirements
 
