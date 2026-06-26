@@ -73,3 +73,6 @@ firebase-service-account*.json
 .config-host/
 .ssh-localhost/
 .notes
+
+# Cloud Credentials (never commit)
+.credentials

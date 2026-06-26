@@ -1,0 +1,19 @@
+# Language-agnostic starter hooks. Add language-specific formatters/linters
+# (black, ruff, prettier, …) per project as needed.
+# The hook is installed automatically by .devcontainer/post-create.sh.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+        # devcontainer.json and VS Code configs are JSONC (comments allowed);
+        # check-json only parses strict JSON, so skip them.
+        exclude: '(^|/)(devcontainer\.json|\.vscode/.*\.json)$'
+      - id: detect-private-key      # guard against committing SSH/GPG keys
+      - id: mixed-line-ending       # normalize CRLF/LF (matters on WSL2/cross-OS)
+      - id: check-case-conflict     # catch names that clash on case-insensitive FSes

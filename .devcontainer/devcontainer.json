@@ -8,17 +8,27 @@
       "version": "lts"
     },
     "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers-extra/features/pulumi:1": {},
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": true,
       "installOhMyZsh": true,
       "configureZshAsDefaultShell": true,
       "username": "vscode"
-    }
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers-extra/features/pre-commit:2": {}
   },
-  "initializeCommand": "mkdir -p ${localEnv:HOME}/.devcontainer-tmp ${localEnv:HOME}/.claude ${localEnv:HOME}/.oh-my-zsh && touch ${localEnv:HOME}/.zshrc",
+  "initializeCommand": "bash .devcontainer/initialize.sh",
+  "containerEnv": {
+    "AWS_REGION": "us-west-2",
+    "AWS_DEFAULT_REGION": "us-west-2",
+    "PULUMI_HOME": "/home/vscode/.pulumi-home"
+  },
   "mounts": [
     "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh-localhost,type=bind,readonly",
+    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind",
+    "source=${localEnv:HOME}/.pulumi,target=/home/vscode/.pulumi-home,type=bind",
     "source=${localEnv:HOME}/.devcontainer-tmp,target=/workspaces/clazzziks/.config-host,type=bind,readonly",
     "source=${localEnv:HOME}/.claude,target=/workspaces/clazzziks/.claude,type=bind",
     "source=${localEnv:HOME}/.zshrc,target=/home/vscode/.zshrc-host,type=bind,readonly",
@@ -31,15 +41,29 @@
         "ms-python.black-formatter",
         "ms-python.pylint",
         "Anthropic.claude-code",
-        "sukumo28.wav-preview"
+        "sukumo28.wav-preview",
+        "oderwat.indent-rainbow",
+        "aaron-bond.better-comments",
+        "usernamehw.errorlens"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
         "[python]": {
           "editor.defaultFormatter": "ms-python.black-formatter"
         },
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "indentRainbow.indicatorStyle": "light",
+        "indentRainbow.lightIndicatorStyleLineWidth": 1,
+        "indentRainbow.colors": [
+          "rgba(255,255,64,0.2)",
+          "rgba(127,255,127,0.2)",
+          "rgba(255,127,255,0.2)",
+          "rgba(79,236,236,0.2)"
+        ]
       }
     }
   },

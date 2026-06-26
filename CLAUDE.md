@@ -28,7 +28,9 @@ State lives in **Postgres** via a SQLAlchemy ORM (`backend/clazzziks/db.py`): a
 download **cache** (keyed by source URL + file type), a **VIP** group, and a
 download log. Inside the devcontainer Postgres runs automatically as the `db`
 service (`CLAZZZIKS_DATABASE_URL` is pre-set); outside it, `docker compose up -d db`.
-The test suite runs against the same Postgres. Rate limiting is FastAPI middleware —
+In the deployed staging/production environments Postgres is **RDS**, provisioned
+by Pulumi (`infra/`); the EC2 instance reads its credentials from Secrets Manager
+at boot. The test suite runs against the same local Postgres. Rate limiting is FastAPI middleware —
 normal users get 20 tracks/hour, VIPs are unlimited (or an admin-set per-VIP cap).
 Admins manage the group via the React `#/admin` dashboard or the `clazzziks-db` CLI.
 See the Database section of `backend/CLAUDE.md`.

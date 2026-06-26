@@ -63,9 +63,10 @@ never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first u
   checks it before a single-link download and re-serves the existing file on a hit
   (a stale row whose file is gone is pruned → miss). Bundle items are cached too.
 - **`vip`** — rate-limit policy per user: `is_admin` flag + nullable `rate_limit`
-  (**NULL = unlimited**, the default for a VIP). The owner (`CLAZZZIKS_ADMIN_EMAIL`,
-  default `mattfinnell104@gmail.com`) is **seeded as admin whenever the group is
-  empty** (including after a removal empties it), so you can't lock yourself out.
+  (**NULL = unlimited**, the default for a VIP). The owner (`CLAZZZIKS_ADMIN_EMAIL`)
+  is **seeded as admin whenever the group is empty** (including after a removal
+  empties it), so you can't lock yourself out. There is no built-in default — when
+  the variable is unset, no owner is seeded.
 - **`download_log`** — one row per served download; drives the rate-limit count.
 
 **Rate limiting is FastAPI middleware** (`_rate_limit` in `web.py`'s `create_app`),
