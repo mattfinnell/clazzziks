@@ -63,7 +63,7 @@ def isolated_db(monkeypatch):
     engine = create_engine(TEST_DATABASE_URL, future=True)
     db.Base.metadata.create_all(engine)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE track_cache, vip, download_log RESTART IDENTITY"))
+        conn.execute(text("TRUNCATE track_cache, vip, download_log, users RESTART IDENTITY"))
     engine.dispose()
 
     db._engines.clear()

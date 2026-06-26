@@ -88,6 +88,27 @@ class DownloadLogRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class UserRow(Base):
+    """A Firebase Auth account mirrored into Postgres by the admin user sync.
+
+    Keyed by Firebase ``uid``. Identity fields are a local snapshot refreshed by
+    :func:`sync_users`; the VIP/throttle policy lives in :class:`VipRow` and is
+    joined by email at read time, so this table stays a pure identity mirror.
+    """
+
+    __tablename__ = "users"
+
+    uid: Mapped[str] = mapped_column(String(128), primary_key=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_sign_in: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 @dataclass(frozen=True)
 class CachedTrack:
     url: str
@@ -105,6 +126,21 @@ class Vip:
     note: str | None
     rate_limit: int | None  # None == unlimited
     added_at: datetime
+
+
+@dataclass(frozen=True)
+class SyncedUser:
+    """A Firebase account as mirrored in Postgres (identity only, no VIP policy)."""
+
+    uid: str
+    email: str | None
+    name: str | None
+    email_verified: bool
+    disabled: bool
+    created_at: str | None
+    last_sign_in: str | None
+    provider: str | None
+    synced_at: datetime
 
 
 # --- engine / session ------------------------------------------------------
@@ -349,3 +385,77 @@ def count_recent_downloads(uid: str, window_seconds: int) -> int:
             )
             or 0
         )
+
+
+def recent_download_counts(window_seconds: int) -> dict[str, int]:
+    """Downloads per ``uid`` within the window, as ``{uid: count}``.
+
+    One grouped query so the admin dashboard can show every user's current usage
+    without an N-query fan-out. Users with no recent downloads are simply absent.
+    """
+    cutoff = _now() - timedelta(seconds=window_seconds)
+    with Session(_engine()) as s:
+        rows = s.execute(
+            select(DownloadLogRow.uid, func.count())
+            .where(DownloadLogRow.created_at >= cutoff)
+            .group_by(DownloadLogRow.uid)
+        ).all()
+    return {uid: int(count) for uid, count in rows}
+
+
+# --- user mirror (Firebase -> Postgres sync) -------------------------------
+
+def _to_synced_user(row: UserRow) -> SyncedUser:
+    return SyncedUser(
+        uid=row.uid, email=row.email, name=row.name,
+        email_verified=row.email_verified, disabled=row.disabled,
+        created_at=row.created_at, last_sign_in=row.last_sign_in,
+        provider=row.provider, synced_at=row.synced_at,
+    )
+
+
+def sync_users(users) -> int:
+    """Upsert a batch of Firebase accounts into the local mirror; returns the count.
+
+    ``users`` is any iterable of objects carrying the identity attributes (the
+    ``auth.FirebaseUser`` shape). Each is matched by ``uid`` and fully overwritten
+    with the latest snapshot, stamping ``synced_at``. Upsert-only — accounts that
+    have disappeared from Firebase are left in place rather than risking deletion
+    on a partial listing.
+    """
+    now = _now()
+    count = 0
+    with Session(_engine()) as s:
+        for u in users:
+            row = s.get(UserRow, u.uid)
+            if row is None:
+                row = UserRow(uid=u.uid)
+                s.add(row)
+            row.email = u.email
+            row.name = u.name
+            row.email_verified = bool(u.email_verified)
+            row.disabled = bool(u.disabled)
+            row.created_at = u.created_at
+            row.last_sign_in = u.last_sign_in
+            row.provider = u.provider
+            row.synced_at = now
+            count += 1
+        s.commit()
+    return count
+
+
+def list_synced_users() -> list[SyncedUser]:
+    with Session(_engine()) as s:
+        rows = s.scalars(select(UserRow)).all()
+    return [_to_synced_user(r) for r in rows]
+
+
+def synced_user_count() -> int:
+    with Session(_engine()) as s:
+        return int(s.scalar(select(func.count()).select_from(UserRow)) or 0)
+
+
+def last_synced_at() -> datetime | None:
+    """Timestamp of the most recent user sync, or ``None`` if never synced."""
+    with Session(_engine()) as s:
+        return s.scalar(select(func.max(UserRow.synced_at)))

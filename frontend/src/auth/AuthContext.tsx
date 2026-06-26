@@ -5,6 +5,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth'
@@ -16,6 +18,8 @@ interface AuthState {
   loading: boolean
   firebaseEnabled: boolean
   signInWithGoogle: () => Promise<void>
+  signInWithEmail: (email: string, password: string) => Promise<void>
+  signUpWithEmail: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -48,6 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async signInWithGoogle() {
         if (!auth) return
         await signInWithPopup(auth, googleProvider)
+      },
+      async signInWithEmail(email, password) {
+        if (!auth) return
+        await signInWithEmailAndPassword(auth, email, password)
+      },
+      async signUpWithEmail(email, password) {
+        if (!auth) return
+        await createUserWithEmailAndPassword(auth, email, password)
       },
       async signOut() {
         if (!auth) return

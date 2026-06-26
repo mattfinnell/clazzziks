@@ -43,7 +43,8 @@ from .inputs import collect_urls
 from .contract import load_contract
 from .logging_config import configure_logging, log_event
 from .auth import (
-    AuthUser, require_user, require_admin, resolve_optional_user, auth_configured,
+    AuthUser, require_user, require_admin, resolve_optional_user,
+    auth_configured, list_users as list_firebase_users,
 )
 from . import db
 
@@ -122,6 +123,50 @@ async def me(user: AuthUser = Depends(require_user)):
 @api.get("/admin/vips")
 async def list_vips(_admin: AuthUser = Depends(require_admin)):
     return {"vips": [_vip_dict(v) for v in db.list_vips()]}
+
+
+@api.get("/admin/users")
+async def list_users(_admin: AuthUser = Depends(require_admin)):
+    # Reads the local Postgres mirror of Firebase accounts, joined with VIP/throttle
+    # state and current usage. The mirror is populated by the user sync; if it's
+    # empty (e.g. fresh deploy) we bootstrap one sync so the dashboard isn't blank.
+    if auth_configured() and db.synced_user_count() == 0:
+        _sync_users_from_firebase()
+    return _users_payload()
+
+
+@api.post("/admin/users/sync")
+async def sync_users(_admin: AuthUser = Depends(require_admin)):
+    # Pull every account from Firebase and upsert it into Postgres, then return the
+    # refreshed list. This is how the mirror is kept current with Firebase Auth.
+    synced = _sync_users_from_firebase()
+    log_event(logger, logging.INFO, "users.sync", synced=synced)
+    return _users_payload()
+
+
+def _sync_users_from_firebase() -> int:
+    """Fetch all Firebase accounts and upsert them into the Postgres mirror."""
+    return db.sync_users(list_firebase_users())
+
+
+def _users_payload() -> dict:
+    """The admin users view: the Postgres mirror joined with VIP state + usage."""
+    window = db.rate_window_seconds()
+    vips = {v.email.lower(): v for v in db.list_vips()}
+    usage = db.recent_download_counts(window)
+    users = [
+        _user_dict(u, vips.get((u.email or "").lower()), usage.get(u.uid, 0))
+        for u in db.list_synced_users()
+    ]
+    # Admins first, then VIPs, then everyone else by email.
+    users.sort(key=lambda u: (not u["is_admin"], not u["is_vip"], (u["email"] or "").lower()))
+    last_synced = db.last_synced_at()
+    return {
+        "users": users,
+        "window_seconds": window,
+        "auth_configured": auth_configured(),
+        "last_synced_at": last_synced.isoformat() if last_synced else None,
+    }
 
 
 @api.post("/admin/vips")
@@ -353,6 +398,22 @@ def _serve_bundle(
     )
 
 
+def _user_dict(u: db.SyncedUser, vip: db.Vip | None, used: int) -> dict:
+    return {
+        "email": u.email,
+        "name": u.name,
+        "email_verified": u.email_verified,
+        "disabled": u.disabled,
+        "created_at": u.created_at,
+        "last_sign_in": u.last_sign_in,
+        "provider": u.provider,
+        "is_vip": vip is not None,
+        "is_admin": bool(vip and vip.is_admin),
+        "rate_limit": vip.rate_limit if vip else None,
+        "used_this_window": used,
+    }
+
+
 def _vip_dict(v: db.Vip) -> dict:
     return {
         "email": v.email,
@@ -392,12 +453,32 @@ def _error(message: str, status: int):
 app = create_app()
 
 
+def _load_dotenv() -> None:
+    """Dev convenience: load ``backend/.env`` into the environment for ``uv run api``.
+
+    Only the CLI entry point calls this — production runs ``uvicorn clazzziks.api:app``
+    and tests import the app directly, so neither auto-loads a ``.env``. Existing
+    environment variables win over the file (``override=False``), so devcontainer
+    presets (e.g. ``CLAZZZIKS_DATABASE_URL``) and anything you exported are never
+    clobbered. No-op when python-dotenv isn't installed (the lean prod image).
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    env_path = Path(__file__).resolve().parents[1] / ".env"  # backend/.env
+    if env_path.is_file():
+        load_dotenv(env_path)
+        logger.info("loaded environment from %s", env_path)
+
+
 def main() -> None:
     import argparse
 
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="Run the CLAZZZIKS web server.")
+    _load_dotenv()
+    parser = argparse.ArgumentParser(description="Run the CLAZZZIKS API server.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--reload", action="store_true")

@@ -153,7 +153,9 @@ behaviour behind these routes.
 Auth is **enforced only when configured** — without a Firebase credential the API
 stays open (anonymous), which keeps local dev and the test suite frictionless.
 
-Configure via environment (see `.env.example` for the full list):
+Configure via environment (see `.env.example` for the full list). `uv run api`
+auto-loads `backend/.env` (existing/exported vars take precedence); run it from
+`backend/` so a relative `CLAZZZIKS_FIREBASE_CREDENTIALS` path resolves:
 
 | Variable | Purpose |
 |---|---|

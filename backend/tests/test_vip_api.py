@@ -213,3 +213,74 @@ def test_admin_api_allowed_for_seeded_admin(client, configured, monkeypatch):
     resp = client.get("/api/admin/vips", headers={"Authorization": "Bearer t"})
     assert resp.status_code == 200
     assert "boss@example.com" in [v["email"] for v in resp.json()["vips"]]
+
+
+# --- admin user list -------------------------------------------------------
+
+def _fake_users():
+    return [
+        auth.FirebaseUser(
+            uid="a1", email="boss@example.com", name="Boss",
+            email_verified=True, disabled=False,
+            created_at="2026-01-01T00:00:00+00:00",
+            last_sign_in="2026-06-01T00:00:00+00:00", provider="google.com",
+        ),
+        auth.FirebaseUser(
+            uid="u2", email="capped@example.com", name="Capped User",
+            email_verified=False, disabled=False,
+            created_at=None, last_sign_in=None, provider="password",
+        ),
+    ]
+
+
+def test_admin_users_merges_vip_state_and_usage(client, configured, monkeypatch):
+    monkeypatch.setenv("CLAZZZIKS_ADMIN_EMAIL", "boss@example.com")
+    assert db.is_admin("boss@example.com") is True  # seeds boss@ as VIP + admin
+    db.add_vip("capped@example.com", rate_limit=5)
+    db.log_download("u2", "capped@example.com", "https://x/1")
+    db.log_download("u2", "capped@example.com", "https://x/2")
+
+    # The seam the endpoint actually calls is the name bound into api.py.
+    monkeypatch.setattr("clazzziks.api.list_firebase_users", _fake_users)
+    _signed_in_as(monkeypatch, uid="a1", email="boss@example.com")
+
+    resp = client.get("/api/admin/users", headers={"Authorization": "Bearer t"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["window_seconds"] == db.rate_window_seconds()
+    assert body["auth_configured"] is True
+
+    users = {u["email"]: u for u in body["users"]}
+    boss = users["boss@example.com"]
+    assert boss["is_admin"] is True and boss["is_vip"] is True
+    assert boss["name"] == "Boss" and boss["provider"] == "google.com"
+
+    capped = users["capped@example.com"]
+    assert capped["is_vip"] is True and capped["is_admin"] is False
+    assert capped["rate_limit"] == 5
+    assert capped["used_this_window"] == 2
+
+    # Admins sort first.
+    assert body["users"][0]["email"] == "boss@example.com"
+
+
+def test_admin_users_forbidden_for_non_admin(client, configured, monkeypatch):
+    _signed_in_as(monkeypatch, uid="u1", email="stranger@example.com")
+    resp = client.get("/api/admin/users", headers={"Authorization": "Bearer t"})
+    assert resp.status_code == 403
+
+
+def test_admin_users_sync_persists_firebase_users(client, monkeypatch):
+    # Open mode: the local caller is admin. Sync pulls Firebase -> Postgres.
+    monkeypatch.setattr("clazzziks.api.list_firebase_users", _fake_users)
+    resp = client.post("/api/admin/users/sync")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["last_synced_at"] is not None
+    assert {"boss@example.com", "capped@example.com"} <= {u["email"] for u in body["users"]}
+
+    # The mirror is persistent: a later read returns them from Postgres even when
+    # Firebase now lists nobody, proving the dashboard no longer hits Firebase live.
+    monkeypatch.setattr("clazzziks.api.list_firebase_users", list)
+    again = client.get("/api/admin/users").json()
+    assert {"boss@example.com", "capped@example.com"} <= {u["email"] for u in again["users"]}

@@ -28,6 +28,8 @@ dev = [
     "pytest>=8.0",
     "httpx>=0.27",
     "jsonschema>=4.0",
+    # Lets `uv run api` auto-load backend/.env in development (api._load_dotenv).
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]
