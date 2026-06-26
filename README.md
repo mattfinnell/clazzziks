@@ -1,8 +1,8 @@
 # CLAZZZIKS
 
-Audio downloader for **YouTube**, **SoundCloud**, and **Spotify**. Outputs
-**WAV**, **MP3** (320kbps default, warns if lower), or **FLAC** — via a React
-web utility, a CLI, or a small HTTP API.
+Audio downloader for **YouTube**, **SoundCloud**, and **Spotify**. The web utility
+and HTTP API always output **320kbps MP3** (single files and ZIP bundles alike);
+the CLI can additionally emit lossless **WAV**/**FLAC** on request.
 
 ## Project layout
 
@@ -23,7 +23,7 @@ sends permissive CORS headers so the two can run on separate origins if needed.
 # 1. Backend  (terminal A — needs uv and ffmpeg on PATH)
 cd backend
 uv sync --extra dev
-uv run clazzziks-web --port 5000
+uv run api --port 5000
 
 # 2. Frontend (terminal B)
 cd frontend
@@ -63,14 +63,14 @@ cd backend
 uv run clazzziks "https://youtu.be/<id>"                    # MP3 320 by default
 uv run clazzziks "https://youtu.be/<id>" -f wav -o ./out
 
-# Many links -> 4 parallel downloads -> one FLAC ZIP bundle
-uv run clazzziks --batch links.txt -f flac -o ./out
+# Many links -> 4 parallel downloads -> one MP3 ZIP bundle (-f flac for lossless)
+uv run clazzziks --batch links.txt -o ./out
 uv run clazzziks --batch "https://docs.google.com/spreadsheets/d/<id>/edit"
 ```
 
 Batch mode downloads up to 4 tracks simultaneously with a live per-track progress
 display. Input accepts a text file (one URL per line), a CSV, inline text, or a
-**public** Google Sheets URL. After `uv sync` the `clazzziks` and `clazzziks-web`
+**public** Google Sheets URL. After `uv sync` the `clazzziks` and `api`
 commands are available directly.
 
 ## Web utility (React frontend)
@@ -78,9 +78,9 @@ commands are available directly.
 The frontend (`frontend/`) is a Vite + React single-page app written in
 TypeScript + SCSS. Run the backend and `pnpm dev` (see Quick start), then open
 http://localhost:5173. A top nav switches between the landing page and the
-download UI. The download page fetches supported formats from the backend,
-detects single-vs-bundle from the link count, shows backend health, and
-surfaces quality warnings. `pnpm build` emits static assets to `frontend/dist/`
+download UI. The download page detects single-vs-bundle from the link count,
+shows backend health, and surfaces quality warnings (output is always MP3).
+`pnpm build` emits static assets to `frontend/dist/`
 for hosting behind any web server.
 
 The FastAPI backend also serves a minimal no-build fallback form at `/`.
@@ -91,9 +91,9 @@ The FastAPI backend also serves a minimal no-build fallback form at `/`.
 GET  /api/              -> Swagger UI (interactive docs)
 GET  /api/health        -> {"status":"ok"}
 GET  /api/openapi.json  -> the shared API contract (see below)
-GET  /api/formats       -> supported formats + defaults (drives the UI)
-POST /api/download      form/JSON: { links, format?, bitrate? }   [auth-protected]
-                        -> audio file (1 link) or application/zip bundle (many)
+GET  /api/formats       -> the served format (always MP3); backend probe
+POST /api/download      form/JSON: { links }   [auth-protected]
+                        -> MP3 file (1 link) or application/zip bundle of MP3s (many)
 ```
 
 `POST /api/download` requires a Firebase ID token (`Authorization: Bearer <token>`)
@@ -102,7 +102,7 @@ open. See [Authentication](#authentication).
 
 ```bash
 curl -X POST localhost:5000/api/download \
-  -d 'links=https://youtu.be/<id>' -d 'format=mp3' -OJ
+  -d 'links=https://youtu.be/<id>' -OJ
 ```
 
 Quality warnings are returned in the `X-Clazzziks-Warnings` response header.
@@ -142,7 +142,7 @@ allowlist.
 > **Note:** the backend reads real environment variables and does **not**
 > auto-load `backend/.env`. Export it before starting the server:
 > ```bash
-> cd backend && set -a && source .env && set +a && uv run clazzziks-web --port 5000
+> cd backend && set -a && source .env && set +a && uv run api --port 5000
 > ```
 
 Token verification lives in `backend/clazzziks/auth.py` (`require_user`
@@ -152,6 +152,10 @@ are gitignored. The web config in `.env.local` is **not** secret — Firebase we
 keys are meant to ship in client bundles; access is controlled by Auth rules.
 
 ## Formats & quality
+
+The web utility and HTTP API always serve **320kbps MP3** — there is no format or
+bitrate selection (FLAC bundles were far too large). The CLI keeps the full set
+for power users:
 
 | Format | Lossless | Notes                                         |
 |--------|----------|-----------------------------------------------|
@@ -164,7 +168,8 @@ produce warnings (CLI output / API `X-Clazzziks-Warnings` header).
 
 **Quality ceiling:** YouTube serves audio at ~160kbps Opus. Requesting 320kbps
 MP3 sets the *encoding target* — re-encoding a 160kbps source does not recover
-quality. Use FLAC to preserve the source without a second lossy transcode.
+quality. From the CLI, use FLAC to preserve the source without a second lossy
+transcode.
 
 ## Tests
 

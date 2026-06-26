@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from clazzziks import db
-from clazzziks.web import create_app
+from clazzziks.api import create_app
 
 TEST_DATABASE_URL = os.environ.get(
     "CLAZZZIKS_TEST_DATABASE_URL",

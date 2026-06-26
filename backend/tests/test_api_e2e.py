@@ -1,8 +1,8 @@
 """E2e tests for the HTTP API with real network downloads.
 
-These cover the full stack — HTTP routing, format parsing, real downloader,
-file response — with no mocking. Complement to ``test_e2e.py`` (downloader
-layer) and ``test_web.py`` (HTTP layer, mocked downloads).
+These cover the full stack — HTTP routing, real downloader, file response —
+with no mocking. Everything served is MP3. Complement to ``test_e2e.py``
+(downloader layer) and ``test_web.py`` (HTTP layer, mocked downloads).
 
 Run with:  pytest -m e2e -v
 Skip with: pytest -m "not e2e"   (the default CI run)
@@ -13,7 +13,7 @@ Skip with: pytest -m "not e2e"   (the default CI run)
 import pytest
 from fastapi.testclient import TestClient
 
-from clazzziks.web import create_app
+from clazzziks.api import create_app
 
 _YT          = "https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM&index=2"
 _SC          = "https://soundcloud.com/mattfinnell/lockyear"
@@ -35,7 +35,7 @@ def live_client():
 
 @pytest.mark.e2e
 def test_api_youtube_returns_mp3(live_client):
-    resp = live_client.post("/api/download", data={"links": _YT, "format": "mp3"})
+    resp = live_client.post("/api/download", data={"links": _YT})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("audio/mpeg")
     assert len(resp.content) > 0
@@ -43,7 +43,7 @@ def test_api_youtube_returns_mp3(live_client):
 
 @pytest.mark.e2e
 def test_api_soundcloud_returns_mp3(live_client):
-    resp = live_client.post("/api/download", data={"links": _SC, "format": "mp3"})
+    resp = live_client.post("/api/download", data={"links": _SC})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("audio/mpeg")
     assert len(resp.content) > 0
@@ -51,14 +51,14 @@ def test_api_soundcloud_returns_mp3(live_client):
 
 @pytest.mark.e2e
 def test_api_soundcloud_drm_is_422(live_client):
-    resp = live_client.post("/api/download", data={"links": _SC_DRM, "format": "mp3"})
+    resp = live_client.post("/api/download", data={"links": _SC_DRM})
     assert resp.status_code == 422
     assert "error" in resp.json()
 
 
 @pytest.mark.e2e
 def test_api_spotify_returns_mp3(live_client):
-    resp = live_client.post("/api/download", data={"links": _SPOTIFY, "format": "mp3"})
+    resp = live_client.post("/api/download", data={"links": _SPOTIFY})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("audio/mpeg")
     assert len(resp.content) > 0
@@ -69,7 +69,7 @@ def test_api_spotify_returns_mp3(live_client):
 @pytest.mark.e2e
 def test_api_bundle_returns_zip(live_client):
     links = f"{_YT}\n{_SC}"
-    resp = live_client.post("/api/download", data={"links": links, "format": "flac"})
+    resp = live_client.post("/api/download", data={"links": links})
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
     assert resp.content[:2] == b"PK"

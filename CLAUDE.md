@@ -37,11 +37,16 @@ See the Database section of `backend/CLAUDE.md`.
 
 ## Audio formats
 
-- **MP3** — 320kbps default; warns if the requested or source bitrate is below 320
-- **WAV** — lossless PCM
-- **FLAC** — lossless compressed; default for batch bundles; preferred when source quality matters
+The **web utility and HTTP API always output 320kbps MP3** — single files and batch
+ZIP bundles alike. There is no user-facing format/bitrate selection (FLAC bundles
+were far too large). FLAC/WAV remain in the `AudioFormat` enum for **CLI use only**
+(`clazzziks -f flac`).
 
-**Quality ceiling:** YouTube's best audio is ~160kbps Opus. Re-encoding to 320kbps MP3 does not recover quality. Use FLAC to avoid a second lossy transcode.
+- **MP3** — 320kbps; the default everywhere; warns if the source bitrate is below 320
+- **WAV** — lossless PCM; CLI only (`-f wav`)
+- **FLAC** — lossless compressed; CLI only (`-f flac`)
+
+**Quality ceiling:** YouTube's best audio is ~160kbps Opus. Re-encoding to 320kbps MP3 does not recover quality. From the CLI, use FLAC to avoid a second lossy transcode.
 
 ## Platforms
 

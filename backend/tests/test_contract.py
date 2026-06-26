@@ -13,7 +13,7 @@ import pytest
 jsonschema = pytest.importorskip("jsonschema")
 
 from clazzziks.contract import load_contract
-from clazzziks.formats import SUPPORTED_FORMATS, AudioFormat, DEFAULT_MP3_BITRATE
+from clazzziks.formats import SUPPORTED_FORMATS, AudioFormat
 
 # The ``client`` fixture (FastAPI TestClient) lives in conftest.py.
 
@@ -74,13 +74,12 @@ def test_formats_response_conforms(client):
 def test_formats_defaults_are_consistent_with_code(client):
     data = client.get("/api/formats").json()
     assert data["default_format"] == AudioFormat.MP3.value
-    assert data["default_bitrate"] == DEFAULT_MP3_BITRATE
     assert data["default_format"] in data["formats"]
 
 
 @pytest.mark.parametrize(
     "payload",
-    [{"links": ""}, {"links": "not a url"}, {"links": "https://youtu.be/x", "format": "ogg"}],
+    [{"links": ""}, {"links": "not a url"}],
 )
 def test_error_responses_conform(client, payload):
     resp = client.post("/api/download", data=payload)

@@ -24,8 +24,6 @@ export interface Config {
   formats: string[]
   default_format: string
   bundle_format: string
-  bitrates: number[]
-  default_bitrate: number
 }
 
 export async function fetchConfig(): Promise<Config> {
@@ -49,8 +47,6 @@ export async function fetchContract(): Promise<unknown> {
 
 interface DownloadParams {
   links: string
-  format: string
-  bitrate: number
 }
 
 interface DownloadResult {
@@ -61,10 +57,8 @@ interface DownloadResult {
 
 export async function requestDownload({
   links,
-  format,
-  bitrate,
 }: DownloadParams): Promise<DownloadResult> {
-  const body = new URLSearchParams({ links, format, bitrate: String(bitrate) })
+  const body = new URLSearchParams({ links })
   const resp = await fetch(`${API_BASE}/download`, {
     method: 'POST',
     headers: await authHeaders(),

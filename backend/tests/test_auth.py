@@ -44,7 +44,7 @@ def _fake_audio(tmp_path: Path):
 def test_download_open_when_auth_not_configured(client, tmp_path, monkeypatch):
     # No Firebase creds -> anonymous pass-through (keeps local dev frictionless).
     monkeypatch.delenv("CLAZZZIKS_FIREBASE_PROJECT_ID", raising=False)
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_audio(tmp_path))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_audio(tmp_path))
     resp = client.post("/api/download", data={"links": "https://youtu.be/abc"})
     assert resp.status_code == 200
 
@@ -76,7 +76,7 @@ def test_download_succeeds_with_valid_token(client, configured, tmp_path, monkey
         "clazzziks.auth.verify_token",
         lambda _t: AuthUser(uid="u1", email="ok@example.com", name="OK"),
     )
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_audio(tmp_path))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_audio(tmp_path))
 
     resp = client.post(
         "/api/download",
@@ -108,7 +108,7 @@ def test_allowlist_allows_approved_email(client, configured, tmp_path, monkeypat
         "clazzziks.auth.verify_token",
         lambda _t: AuthUser(uid="u3", email="VIP@example.com"),  # case-insensitive
     )
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_audio(tmp_path))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_audio(tmp_path))
     resp = client.post(
         "/api/download",
         data={"links": "https://youtu.be/abc"},

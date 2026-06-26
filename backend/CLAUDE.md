@@ -11,8 +11,8 @@ Always prefix with `uv run` from `backend/`:
 docker compose up -d db        # Postgres — required for tests/app
 uv run pytest                  # unit + contract tests (need Postgres up)
 uv run pytest -m e2e -v        # real-network e2e tests
-uv run clazzziks-web --reload  # dev server (JSON logs, default)
-CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload  # coloured dev logs
+uv run api --reload  # dev server (JSON logs, default)
+CLAZZZIKS_LOG_FORMAT=pretty uv run api --reload  # coloured dev logs
 uv run clazzziks-db vip ls     # manage the VIP group / rate limits
 ```
 

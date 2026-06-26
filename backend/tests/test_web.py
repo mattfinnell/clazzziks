@@ -43,14 +43,12 @@ def test_formats_shape_matches_frontend_contract(client):
     resp = client.get("/api/formats")
     assert resp.status_code == 200
     data = resp.json()
-    # Keys the React client (App.jsx FALLBACK_CONFIG) reads.
-    assert set(data) >= {
-        "formats", "default_format", "bundle_format", "default_bitrate", "bitrates",
-    }
-    assert data["formats"] == ["wav", "mp3", "flac"]
+    # Keys the React client (Config) reads. Users no longer pick a format/bitrate;
+    # everything served is MP3.
+    assert set(data) >= {"formats", "default_format", "bundle_format"}
+    assert data["formats"] == ["mp3"]
     assert data["default_format"] == "mp3"
-    assert data["bundle_format"] == "flac"
-    assert data["default_bitrate"] == 320
+    assert data["bundle_format"] == "mp3"
 
 
 # --- download: validation --------------------------------------------------
@@ -67,16 +65,6 @@ def test_download_rejects_input_with_no_valid_links(client):
     assert "error" in resp.json()
 
 
-def test_download_rejects_unsupported_format(client):
-    # One valid URL so we reach format parsing; format itself is bad.
-    resp = client.post(
-        "/api/download",
-        data={"links": "https://youtu.be/abc", "format": "ogg"},
-    )
-    assert resp.status_code == 400
-    assert "error" in resp.json()
-
-
 # --- download: single file -------------------------------------------------
 
 def test_download_single_returns_file_with_headers(client, tmp_path, monkeypatch):
@@ -88,12 +76,9 @@ def test_download_single_returns_file_with_headers(client, tmp_path, monkeypatch
             fmt=AudioFormat.MP3, warnings=["low bitrate"],
         )
 
-    monkeypatch.setattr("clazzziks.web.download_audio", fake_download_audio)
+    monkeypatch.setattr("clazzziks.api.download_audio", fake_download_audio)
 
-    resp = client.post(
-        "/api/download",
-        data={"links": "https://youtu.be/abc", "format": "mp3", "bitrate": "320"},
-    )
+    resp = client.post("/api/download", data={"links": "https://youtu.be/abc"})
     assert resp.status_code == 200
     assert mimetype(resp) == "audio/mpeg"
     # Starlette encodes the filename as RFC 5987 filename*=; the frontend decodes
@@ -107,7 +92,7 @@ def test_download_single_unavailable_is_422(client, monkeypatch):
     def boom(url, *, fmt, outdir, bitrate):
         raise DownloadUnavailableError("DRM protected")
 
-    monkeypatch.setattr("clazzziks.web.download_audio", boom)
+    monkeypatch.setattr("clazzziks.api.download_audio", boom)
 
     resp = client.post("/api/download", data={"links": "https://youtu.be/abc"})
     assert resp.status_code == 422
@@ -118,7 +103,7 @@ def test_download_single_unexpected_error_is_502(client, monkeypatch):
     def boom(url, *, fmt, outdir, bitrate):
         raise RuntimeError("ffmpeg exploded")
 
-    monkeypatch.setattr("clazzziks.web.download_audio", boom)
+    monkeypatch.setattr("clazzziks.api.download_audio", boom)
 
     resp = client.post("/api/download", data={"links": "https://youtu.be/abc"})
     assert resp.status_code == 502
@@ -137,11 +122,11 @@ def test_download_bundle_returns_zip_with_failure_warnings(client, tmp_path, mon
             failures=[("https://youtu.be/bad", "unavailable")],
         )
 
-    monkeypatch.setattr("clazzziks.web.download_bundle", fake_bundle)
+    monkeypatch.setattr("clazzziks.api.download_bundle", fake_bundle)
 
     resp = client.post(
         "/api/download",
-        data={"links": "https://youtu.be/a\nhttps://youtu.be/bad", "format": "flac"},
+        data={"links": "https://youtu.be/a\nhttps://youtu.be/bad"},
     )
     assert resp.status_code == 200
     assert mimetype(resp) == "application/zip"

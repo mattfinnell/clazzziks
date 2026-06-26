@@ -32,7 +32,7 @@ dev = [
 
 [project.scripts]
 clazzziks = "clazzziks.cli:main"
-clazzziks-web = "clazzziks.web:main"
+api = "clazzziks.api:main"
 clazzziks-db = "clazzziks.admin:main"
 
 [tool.setuptools.packages.find]
