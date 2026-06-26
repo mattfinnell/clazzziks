@@ -23,9 +23,23 @@ first — `pulumi preview` will catch them.
 
 ## File layout
 
+Resources are organized by component. `index.ts` is a thin orchestrator that
+wires the component factories together and exports the stack outputs; each file
+under `components/` owns one slice of the architecture.
+
 | File | Purpose |
 |---|---|
-| `index.ts` | All AWS resources: ECR, VPC, EC2, EIP, EBS, RDS, Secrets Manager, S3, CloudFront |
+| `index.ts` | Orchestrator: calls the component factories in dependency order, exports outputs |
+| `config.ts` | Shared config (per-stack values), `tags`, `region`, `accountId`, `REPO_ROOT` |
+| `components/network.ts` | VPC + security groups (instance, db) |
+| `components/image.ts` | ECR repository + Docker image build/push |
+| `components/secrets.ts` | Secrets Manager entries (admin email, Firebase) |
+| `components/database.ts` | RDS subnet group + Postgres instance (+ master secret ARN) |
+| `components/iam.ts` | Instance role + profile + secrets read policy |
+| `components/userdata.ts` | EC2 first-boot script builder |
+| `components/compute.ts` | AMI lookup + EC2 instance + Elastic IP + association |
+| `components/frontend.ts` | S3 bucket + public-access block + `dist/` sync |
+| `components/cdn.ts` | CloudFront + OAC + S3 bucket policy |
 | `Pulumi.yaml` | Pulumi project config |
 | `Pulumi.staging.yaml` | Staging stack config (t3.micro, db.t4g.micro, ephemeral) |
 | `Pulumi.production.yaml` | Production stack config (t3.small, durable DB, retained bucket) |
@@ -63,7 +77,11 @@ RDS generates and rotates it in Secrets Manager (`manageMasterUserPassword`).
 
 ## Adding a new AWS resource
 
-Add it to `index.ts`. If it needs environment-specific values, read them from
+Add it to the relevant `components/<area>.ts` file (or a new one), exporting any
+handle other components need from its factory, and wire it in `index.ts`. Keep a
+resource's first-arg **name string stable** when moving code between files — the
+Pulumi URN is derived from it, so renaming forces a destroy/recreate. If the
+resource needs environment-specific values, read them in `config.ts` from
 `pulumi.Config` and set them in both `Pulumi.staging.yaml` and
 `Pulumi.production.yaml`.
 
@@ -117,49 +135,49 @@ Add it to `index.ts`. If it needs environment-specific values, read them from
   `clazzziks:dbDeletionProtection` to `false` and `pulumi up`. Staging skips the
   final snapshot and tears down cleanly.
 
-## TODO — Configure Pulumi & deploy staging (2026-06-26)
-
-Goal: configure Pulumi and see CLAZZZIKS running in **staging** on AWS.
+## Deploying
 
 Datacenter: **us-west-2** (set in both `Pulumi.staging.yaml` and `Pulumi.production.yaml`;
-`index.ts` reads it from `aws.config.region`).
+`config.ts` reads it from `aws.config.region`).
 
-Blockers found in devcontainer (must fix first — both are mine to do, interactive):
-- [ ] **AWS credentials missing** (`aws sts get-caller-identity` -> NoCredentials).
-      Run `aws configure` once — `~/.aws` is bind-mounted from the host
-      (`.devcontainer/devcontainer.json`), so creds persist across rebuilds and
-      `post-create.sh` verifies them on setup. Region defaults to us-west-2 via
-      containerEnv (and is pinned to us-west-2 in Pulumi.staging.yaml).
-- [ ] **Pulumi backend** is a throwaway ephemeral agent account, no real stacks.
-      Decision: use my own Pulumi Cloud — `pulumi logout && pulumi login`.
-      (Alternatives, not chosen: `pulumi login --local`, or claim the ephemeral org
-      within ~3 days at https://app.pulumi.com/claim/019efd80-dbf6-7437-ada8-c8cf7c715ea1
-      — claiming locks the org during the process, so it'd have to be done AFTER deploying.)
+**Status:** `staging` is deployed to the **`mattfinnell` Pulumi Cloud org**
+(`app.pulumi.com/mattfinnell/clazzziks/staging`). The devcontainer's throwaway
+ephemeral Pulumi agent org is unused (empty) and can be ignored — it expires on
+its own; don't claim it.
 
-Also required (discovered during the first staging deploy):
-- [ ] **IAM permissions** — the deploying user needs to create EC2/VPC, RDS, S3,
-      CloudFront, ECR, IAM, and Secrets Manager resources. Attach
-      `AdministratorAccess` (simplest, durable) or the scoped union listed in
-      `README.md`. Symptom if missing: `UnauthorizedOperation` 403 on the first
-      `pulumi preview` (`ec2:DescribeImages`). Self-grant is impossible — attach
-      from the console as account root.
-- [ ] **Docker credsStore** — the devcontainer's injected `credsStore` helper has
+### One-time environment setup (resolved on this machine)
+- [x] **AWS credentials** — `aws configure` done; `~/.aws` is bind-mounted from the
+      host (`.devcontainer/devcontainer.json`) so it persists across rebuilds.
+      `post-create.sh` verifies them. Region defaults to us-west-2 via containerEnv.
+- [x] **Pulumi backend** — own Pulumi Cloud via `pulumi login` (not the ephemeral
+      agent org). `pulumi whoami` → `mattfinnell`.
+- [x] **IAM permissions** — the deploying user needs to create EC2/VPC, RDS, S3,
+      CloudFront, ECR, IAM, and Secrets Manager resources; `AdministratorAccess`
+      attached (scoped alternative in `README.md`). Symptom if missing:
+      `UnauthorizedOperation` 403 on the first `pulumi preview` (`ec2:DescribeImages`).
+      A user can't self-grant — attach from the console as account root.
+- [x] **Docker credsStore** — the devcontainer's injected `credsStore` helper has
       no `list` verb, so the image build dies with `error listing credentials -
-      err: exit status 255`. `post-create.sh` now strips it automatically; after a
-      manual config change, re-run that script or delete the `credsStore` key.
+      err: exit status 255`. `post-create.sh` strips it automatically on create.
 
-Already OK: Pulumi CLI v3.248.0, AWS CLI v2, Docker running.
+### Deploy a stack (reusable — e.g. for production)
+1. `cd infra && pulumi stack init <env>` (skip if the stack already exists).
+2. `pulumi config set --secret clazzziks:adminEmail <you@example.com>`
+   (seeded as VIP + admin on every boot; Firebase auth optional — leave unset to run open).
+3. Build the frontend: `cd frontend && pnpm install && pnpm build`.
+4. `cd infra && pulumi preview` then `pulumi up` (real, billable AWS infra; Docker must be running).
+5. **If Firebase auth is enabled:** add the CloudFront domain
+   (`pulumi stack output siteUrl` host) to Firebase Console → Authentication →
+   Settings → **Authorized domains**, or Google sign-in fails with
+   `auth/unauthorized-domain`. The domain is stable across `pulumi up`.
+6. After a frontend change, invalidate the CDN cache:
+   `aws cloudfront create-invalidation --distribution-id $(pulumi stack output distributionId) --paths '/*'`.
 
-Deploy steps once unblocked:
-- [ ] `cd infra && pulumi stack init staging`   (config file exists; stack does not)
-- [ ] `pulumi config set --secret clazzziks:adminEmail mattfinnell104@gmail.com`
-      (Firebase auth optional - leave unset to run open)
-- [ ] Build frontend (dist/ is empty): `cd frontend && pnpm install && pnpm build`
-- [ ] `cd infra && pulumi preview`  then  `pulumi up`  (real billable AWS infra)
-- [ ] Note: EC2 user-data boot (Docker/nginx/secret fetch/image pull) takes a few
-      min after `up` returns - API may 502 briefly before it's live.
+EC2 user-data boot (mount /data → Docker → image pull → nginx) takes a few minutes
+after `up` returns; the API may 502/504 briefly before it's live.
 
-Verify staging:
-- [ ] `pulumi stack output siteUrl`     -> open CloudFront HTTPS URL in browser
-- [ ] `curl http://$(pulumi stack output elasticIp)/api/...`  (direct EIP, bypasses 60s CF timeout)
-- [ ] `pulumi stack output dbEndpoint`  -> RDS hostname (private)
+### Verify
+- `pulumi stack output siteUrl` → open the CloudFront HTTPS URL in a browser.
+- `curl http://$(pulumi stack output elasticIp)/api/formats` → direct EIP (bypasses the 60 s CF timeout); expect 200 JSON once booted.
+- `pulumi stack output dbEndpoint` → RDS hostname (private).
+- Boot debugging: `aws ec2 get-console-output --region us-west-2 --instance-id <id> | tail -40`.

@@ -164,7 +164,18 @@ pulumi destroy
 
 ```
 infra/
-├── index.ts                # all AWS resources (ECR, VPC, EC2, EIP, RDS, Secrets Manager, S3, CloudFront)
+├── index.ts                # orchestrator: wires components together, exports outputs
+├── config.ts               # shared config, tags, region/account, repo root
+├── components/
+│   ├── network.ts          # VPC + security groups
+│   ├── image.ts            # ECR repository + Docker image build
+│   ├── secrets.ts          # Secrets Manager (admin email, Firebase)
+│   ├── database.ts         # RDS subnet group + Postgres instance
+│   ├── iam.ts              # instance role + profile + secrets policy
+│   ├── userdata.ts         # EC2 first-boot script builder
+│   ├── compute.ts          # AMI + EC2 instance + Elastic IP
+│   ├── frontend.ts         # S3 bucket + public-access block + dist sync
+│   └── cdn.ts              # CloudFront + OAC + bucket policy
 ├── Pulumi.yaml             # Pulumi project config
 ├── Pulumi.staging.yaml     # staging stack config
 ├── Pulumi.production.yaml  # production stack config

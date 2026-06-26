@@ -64,8 +64,11 @@ never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first u
   (a stale row whose file is gone is pruned → miss). Bundle items are cached too.
 - **`vip`** — rate-limit policy per user: `is_admin` flag + nullable `rate_limit`
   (**NULL = unlimited**, the default for a VIP). The owner (`CLAZZZIKS_ADMIN_EMAIL`)
-  is **seeded as admin whenever the group is empty** (including after a removal
-  empties it), so you can't lock yourself out. There is no built-in default — when
+  is **upserted as a VIP + admin on every startup** (`_seed_admin`, idempotent):
+  the owner row is created with `is_admin=True` if missing, or promoted to admin
+  if it exists (a deliberately-set `rate_limit` is preserved), so a fresh deploy
+  always has a working admin and you can't lock yourself out. A removal that
+  empties the group also re-seeds the owner. There is no built-in default — when
   the variable is unset, no owner is seeded.
 - **`download_log`** — one row per served download; drives the rate-limit count.
 

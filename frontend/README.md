@@ -18,11 +18,11 @@ pnpm preview   # serve the production build locally
 | `VITE_API_BASE` | `/api` | API base path used by the browser client at runtime; set to a full URL to call a backend on a different origin (CORS is enabled server-side) |
 
 ```bash
-# Point the dev proxy at a remote backend
-VITE_API_TARGET=http://staging-alb.example.com npm run dev
+# Point the dev proxy at a remote backend (e.g. the staging Elastic IP)
+VITE_API_TARGET=http://<elastic-ip> pnpm dev
 
 # Call a different-origin API in the built app
-VITE_API_BASE=http://staging-alb.example.com/api npm run build
+VITE_API_BASE=http://<elastic-ip>/api pnpm build
 ```
 
 ## Source files
@@ -35,16 +35,16 @@ VITE_API_BASE=http://staging-alb.example.com/api npm run build
 
 ## Production build (for AWS deploy)
 
-The CDK stack (`infra/`) bundles `frontend/dist/` into S3 during `cdk deploy`.
+The Pulumi stack (`infra/`) syncs `frontend/dist/` into S3 during `pulumi up`.
 Build the frontend before deploying:
 
 ```bash
-cd frontend && npm install && npm run build
-cd ../infra  && npx cdk deploy Staging/Clazzziks
+cd frontend && pnpm install && pnpm build
+cd ../infra  && pulumi up -s staging
 ```
 
 The built app calls `/api/*` using relative paths, which CloudFront routes to
-the ALB — no per-environment API URL configuration is needed.
+the EC2 Elastic IP origin — no per-environment API URL configuration is needed.
 Environment overrides:
 
 - `VITE_API_TARGET` — backend the dev server proxies `/api` to (default `http://localhost:5000`).
