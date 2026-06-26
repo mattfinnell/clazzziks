@@ -7,6 +7,20 @@ import Admin from './pages/Admin'
 import { useAuth } from './auth/AuthContext'
 import { fetchMe } from './api'
 
+// Backdrop palm-tree silhouette (see .scene__palm in globals.scss). String.raw
+// keeps the backslashes in the frond/trunk art literal.
+const PALM = String.raw`
+    __ /\ __
+  \/  \||/  \/
+  /\__\||/__/\
+      \||/
+       ||
+       ||
+       ||
+      /||\
+     /_||_\
+`
+
 // Tiny hash router — avoids pulling in react-router for a single extra page and
 // works under static hosting (S3/CloudFront) without server rewrite rules.
 function useHashRoute(): string {
@@ -39,6 +53,11 @@ export default function App() {
 
   return (
     <div className={`crt${tier ? ` crt--${tier}` : ''}`}>
+      <div className="scene" aria-hidden="true">
+        <div className="scene__sun" />
+        <pre className="scene__palm scene__palm--left">{PALM}</pre>
+        <pre className="scene__palm scene__palm--right">{PALM}</pre>
+      </div>
       <AuthBar />
       {route === '#/admin' ? <Admin /> : <Downloader />}
       <footer className="crt__footer">

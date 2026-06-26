@@ -30,10 +30,16 @@ body {
   height: 100%;
 }
 
+// Canvas colour lives on <html> so <body> stays transparent and the fixed
+// .scene backdrop (z-index: -1) is not occluded by an opaque body box.
+html {
+  background: var(--bg);
+}
+
 body {
   margin: 0;
   font-family: var(--mono);
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   font-size: 15px;
   line-height: 1.5;
@@ -108,6 +114,150 @@ a {
     content: '_';
     animation: blink 1s steps(2, start) infinite;
   }
+}
+
+// Synthwave-beach backdrop. Fixed and pinned behind the UI (z-index: -1 — above
+// the <html> canvas but below the normal-flow console) so the green-phosphor
+// terminal stays dominant in front. Colours are kept muted and the foreground
+// windows are opaque, so the scene reads as an atmospheric backdrop rather than
+// competing with the UI. A slow hue-rotate sweeps every colour through the
+// spectrum over a minute — the "modulating" synthwave glow.
+.scene {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  // Visible as a backdrop but still subordinate to the foreground console.
+  opacity: 0.8;
+  animation: scene-hue 60s linear infinite;
+  background:
+    // Glow / haze around the horizon (the banded sun disc is .scene__sun).
+    radial-gradient(ellipse at 50% 56%, rgba(255, 140, 190, 0.45) 0%, rgba(255, 140, 190, 0) 44%)
+      50% 0 / 100% 100% no-repeat,
+    // Mirrored sun streak shimmering on the ocean.
+    linear-gradient(to bottom, rgba(255, 150, 195, 0.35), rgba(255, 150, 195, 0))
+      50% 56% / 150px 24% no-repeat,
+    // Neon perspective grid laid over the beach — horizontal rungs...
+    repeating-linear-gradient(to bottom, rgba(255, 120, 210, 0.34) 0 1px, transparent 1px 22px)
+      0 80% / 100% 20% no-repeat,
+    // ...and vertical rails.
+    repeating-linear-gradient(to right, rgba(120, 150, 255, 0.28) 0 1px, transparent 1px 60px)
+      0 80% / 100% 20% no-repeat,
+    // Sky → ocean → sandy beach. Horizon ~56%; the warm tan foot is the shore.
+    linear-gradient(
+      to bottom,
+      #19103f 0%,
+      #2e1860 20%,
+      #54206a 40%,
+      #8a2c63 54%,
+      #2a1550 56%,
+      #1d1248 78%,
+      #6b4a63 80%,
+      #b98a6a 100%
+    );
+}
+
+// Swirl: a rotating conic-gradient hue wash centred on the sun. Blended over the
+// scene it makes the colours churn round in a slow spiral (paired with the global
+// hue-rotate on .scene). Oversized + inset so the corners stay covered as it spins.
+.scene::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  // Off-centre origin + uneven colour stops so the swirl modulates asymmetrically
+  // — the hues bunch on one side and stretch on the other as it turns.
+  background: conic-gradient(
+    from 20deg at 38% 44%,
+    rgba(255, 120, 200, 0.2) 0%,
+    rgba(120, 150, 255, 0.16) 22%,
+    rgba(110, 255, 210, 0.14) 38%,
+    rgba(255, 205, 120, 0.2) 72%,
+    rgba(255, 120, 200, 0.2) 100%
+  );
+  mix-blend-mode: overlay;
+  // Non-linear keyframes make the spin speed up then ease off — asymmetric churn.
+  animation: scene-swirl 44s ease-in-out infinite;
+}
+
+// The setting sun: a banded disc low on the horizon. Vertical sunset gradient,
+// with the classic synthwave "venetian" gaps carved across its lower half.
+.scene__sun {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: 360px;
+  height: 360px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden; // clip the band strip to the disc
+  background: linear-gradient(
+    to bottom,
+    #ffe7a0 0%,
+    #ffc06a 30%,
+    #ff8f6e 52%,
+    #ff6aa6 74%,
+    #d94f9a 100%
+  );
+  box-shadow: 0 0 90px 26px rgba(255, 140, 190, 0.45);
+}
+
+.scene__sun::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 0 0; // bands only across the lower half, fading toward the horizon
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 6px,
+    rgba(14, 7, 34, 0.85) 6px 10px,
+    transparent 10px 17px,
+    rgba(14, 7, 34, 0.85) 17px 24px
+  );
+}
+
+// ASCII palm trees, pulled forward to the foreground — bigger, lower, and nearer
+// the edges. Dark silhouettes with a neon edge glow, the way they read against a
+// synthwave sunset.
+.scene__palm {
+  position: absolute;
+  bottom: 3%;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 30px;
+  line-height: 1;
+  white-space: pre;
+  color: rgba(6, 3, 18, 0.72);
+  text-shadow: 0 0 11px rgba(255, 120, 200, 0.5);
+}
+
+.scene__palm--left { left: 3%; }
+.scene__palm--right {
+  right: 3%;
+  transform: scaleX(-1); // mirror so the pair leans outward
+}
+
+// Asymmetric colour modulation: the hue sweep covers more ground early then eases
+// off, rather than turning at a constant rate.
+@keyframes scene-hue {
+  0% { filter: hue-rotate(0deg); }
+  50% { filter: hue-rotate(220deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+@keyframes scene-swirl {
+  0% { transform: rotate(0deg); }
+  55% { transform: rotate(245deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@media (max-width: 600px) {
+  // Trees and a full-size sun crowd the console on narrow screens.
+  .scene__palm { display: none; }
+  .scene__sun { width: 220px; height: 220px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene,
+  .scene::before { animation: none; }
 }
 
 // App shell / CRT screen frame.

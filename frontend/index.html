@@ -7,8 +7,10 @@
     <meta name="theme-color" content="#020a02" />
     <title>CLAZZZIKS // audio extraction terminal</title>
     <style>
-      /* Avoid a white flash before the stylesheet loads. */
-      html, body { margin: 0; background: #020a02; color: #33ff66; }
+      /* Avoid a white flash before the stylesheet loads. The canvas colour lives
+         on <html> so <body> can stay transparent and reveal the .scene backdrop. */
+      html { background: #020a02; }
+      html, body { margin: 0; color: #33ff66; }
     </style>
   </head>
   <body>
