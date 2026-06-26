@@ -1,4 +1,4 @@
-"""CLAZZZIKS — audio downloader for YouTube, SoundCloud and Spotify.
+"""CLAZZZIKS — audio downloader for YouTube and SoundCloud.
 
 Public API:
     download_audio(url, fmt, outdir, bitrate)  -> DownloadResult
@@ -14,7 +14,6 @@ from .downloader import (
     Downloader,
     YoutubeDownloader,
     SoundcloudDownloader,
-    SpotifyDownloader,
 )
 from .bundle import download_bundle, BundleResult
 
@@ -29,7 +28,6 @@ __all__ = [
     "Downloader",
     "YoutubeDownloader",
     "SoundcloudDownloader",
-    "SpotifyDownloader",
     "download_bundle",
     "BundleResult",
 ]

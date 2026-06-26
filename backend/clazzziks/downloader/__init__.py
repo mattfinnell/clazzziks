@@ -2,7 +2,7 @@
 
 Each streaming platform is modelled as a :class:`Downloader` subclass in its own
 module (:mod:`~clazzziks.downloader.youtube`,
-:mod:`~clazzziks.downloader.soundcloud`, :mod:`~clazzziks.downloader.spotify`).
+:mod:`~clazzziks.downloader.soundcloud`).
 This package re-exports the public API and owns URL -> downloader dispatch.
 """
 
@@ -19,7 +19,6 @@ from .base import (
 )
 from .youtube import YoutubeDownloader
 from .soundcloud import SoundcloudDownloader
-from .spotify import SpotifyDownloader
 
 __all__ = [
     "Downloader",
@@ -27,7 +26,6 @@ __all__ = [
     "DownloadUnavailableError",
     "YoutubeDownloader",
     "SoundcloudDownloader",
-    "SpotifyDownloader",
     "downloader_for",
     "download_audio",
 ]
@@ -36,7 +34,6 @@ __all__ = [
 _DOWNLOADERS: list[type[Downloader]] = [
     YoutubeDownloader,
     SoundcloudDownloader,
-    SpotifyDownloader,
 ]
 
 
@@ -44,7 +41,7 @@ def downloader_for(url: str) -> Downloader:
     """Return the :class:`Downloader` responsible for ``url``.
 
     Raises :class:`ValueError` for hosts outside the supported platforms
-    (YouTube, SoundCloud, Spotify).
+    (YouTube, SoundCloud).
     """
     for cls in _DOWNLOADERS:
         if cls.handles(url):

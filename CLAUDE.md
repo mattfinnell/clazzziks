@@ -1,6 +1,6 @@
 # Project Root - CLAZZZIKS
 
-Audio downloader supporting YouTube, SoundCloud, and Spotify. Outputs MP3, WAV, or FLAC via a CLI, web UI, or HTTP API.
+Audio downloader supporting YouTube and SoundCloud. Outputs MP3, WAV, or FLAC via a CLI, web UI, or HTTP API.
 
 ## Layout
 
@@ -52,4 +52,6 @@ were far too large). FLAC/WAV remain in the `AudioFormat` enum for **CLI use onl
 
 - **YouTube** — direct yt-dlp download; CDN returns 403 in cookie-less environments
 - **SoundCloud** — direct yt-dlp download; many tracks are DRM-encrypted
-- **Spotify** — DRM-protected; resolved via public metadata → YouTube search → yt-dlp
+
+Bulk input also accepts a public Google Sheets URL; URL-less rows (song + artist)
+are resolved via a `ytsearch1:` YouTube query.

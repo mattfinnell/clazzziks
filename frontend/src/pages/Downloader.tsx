@@ -5,6 +5,75 @@ import AsciiLogo from '../components/AsciiLogo'
 import Terms from '../components/Terms'
 import './Downloader.scss'
 
+// Client-side input validation, mirroring the backend's source detection
+// (clazzziks/sources.py). Only YouTube and SoundCloud are downloadable; a public
+// Google Sheets URL is accepted too (the backend expands it). Everything else is
+// flagged before submit so the user gets immediate, specific feedback.
+const SUPPORTED_HOSTS: RegExp[] = [
+  /(^|\.)youtube\.com$/,
+  /(^|\.)youtu\.be$/,
+  /(^|\.)youtube-nocookie\.com$/,
+  /(^|\.)soundcloud\.com$/,
+  /(^|\.)snd\.sc$/,
+]
+const SPOTIFY_HOSTS: RegExp[] = [/(^|\.)spotify\.com$/, /(^|\.)spotify\.link$/]
+const SHEETS_RE = /^https?:\/\/docs\.google\.com\/spreadsheets\/d\//i
+
+type LinkKind = 'ok' | 'spotify' | 'unsupported' | 'invalid'
+
+function classifyLink(token: string): LinkKind {
+  if (SHEETS_RE.test(token)) return 'ok' // Google Sheet — backend expands it
+  let url: URL
+  try {
+    url = new URL(token)
+  } catch {
+    return 'invalid'
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'invalid'
+  const host = url.hostname.toLowerCase()
+  if (SUPPORTED_HOSTS.some((p) => p.test(host))) return 'ok'
+  if (SPOTIFY_HOSTS.some((p) => p.test(host))) return 'spotify'
+  return 'unsupported'
+}
+
+interface Validation {
+  valid: string[]
+  problems: string[]
+}
+
+function validateLinks(text: string): Validation {
+  const tokens = text
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+  const valid: string[] = []
+  let spotify = 0
+  let unsupported = 0
+  let invalid = 0
+  for (const token of tokens) {
+    switch (classifyLink(token)) {
+      case 'ok':
+        valid.push(token)
+        break
+      case 'spotify':
+        spotify++
+        break
+      case 'unsupported':
+        unsupported++
+        break
+      default:
+        invalid++
+    }
+  }
+  const s = (n: number) => (n > 1 ? 's' : '')
+  const problems: string[] = []
+  if (spotify) problems.push(`${spotify} Spotify link${s(spotify)} — Spotify is no longer supported`)
+  if (unsupported)
+    problems.push(`${unsupported} unsupported link${s(unsupported)} — only YouTube & SoundCloud`)
+  if (invalid) problems.push(`${invalid} ${invalid > 1 ? 'entries are' : 'entry is'} not a valid URL`)
+  return { valid, problems }
+}
+
 export default function Downloader() {
   // Only used to probe backend availability — output is always MP3. Poll fast
   // (150ms) while offline so recovery shows almost immediately, then back off to
@@ -23,16 +92,16 @@ export default function Downloader() {
     onSuccess: ({ filename, blob }) => saveBlob(blob, filename),
   })
 
-  const linkCount = useMemo(
-    () => links.split(/[\s,;]+/).filter((t) => /^https?:\/\//.test(t)).length,
-    [links],
-  )
-  const isBundle = linkCount > 1
+  const { valid, problems } = useMemo(() => validateLinks(links), [links])
+  const validCount = valid.length
+  const isBundle = validCount > 1
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!links.trim()) return
-    download.mutate({ links })
+    if (validCount === 0) return
+    // Submit only the valid links so unsupported/invalid entries never reach the
+    // backend (the UI has already told the user about them).
+    download.mutate({ links: valid.join('\n') })
   }
 
   return (
@@ -58,13 +127,19 @@ export default function Downloader() {
               value={links}
               spellCheck={false}
               onChange={(e) => setLinks(e.target.value)}
-              placeholder={
-                'https://youtu.be/...\nhttps://soundcloud.com/...\nhttps://open.spotify.com/track/...'
-              }
+              placeholder={'https://youtu.be/...\nhttps://soundcloud.com/...'}
             />
 
-            <button type="submit" disabled={download.isPending}>
-              {download.isPending ? 'EXECUTING…' : isBundle ? `FETCH BUNDLE x${linkCount}` : 'FETCH'}
+            {problems.length > 0 && (
+              <ul className="downloader__validation" role="alert">
+                {problems.map((p) => (
+                  <li key={p}>!! {p}</li>
+                ))}
+              </ul>
+            )}
+
+            <button type="submit" disabled={download.isPending || validCount === 0}>
+              {download.isPending ? 'EXECUTING…' : isBundle ? `FETCH BUNDLE x${validCount}` : 'FETCH'}
             </button>
           </form>
 

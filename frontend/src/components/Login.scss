@@ -168,6 +168,15 @@
     text-shadow: 0 0 6px rgba(255, 95, 86, 0.5);
   }
 
+  // Informational (not an error) — e.g. "check your inbox to verify".
+  &__notice {
+    margin: 16px 0 0;
+    color: var(--amber);
+    font-size: 13px;
+    line-height: 1.5;
+    text-shadow: 0 0 6px rgba(255, 207, 77, 0.4);
+  }
+
   @media (max-width: 600px) {
     padding: 12px;
 

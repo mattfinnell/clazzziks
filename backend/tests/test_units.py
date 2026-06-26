@@ -24,7 +24,6 @@ from clazzziks.downloader import (
     Downloader,
     YoutubeDownloader,
     SoundcloudDownloader,
-    SpotifyDownloader,
     DownloadUnavailableError,
     downloader_for,
 )
@@ -63,7 +62,7 @@ def test_source_bitrate_warning_only_for_low_mp3():
     ("https://www.youtube.com/watch?v=abc", Source.YOUTUBE),
     ("https://youtu.be/abc", Source.YOUTUBE),
     ("https://soundcloud.com/artist/track", Source.SOUNDCLOUD),
-    ("https://open.spotify.com/track/xyz", Source.SPOTIFY),
+    ("https://open.spotify.com/track/xyz", Source.UNKNOWN),  # Spotify no longer supported
     ("https://example.com/song.mp3", Source.UNKNOWN),
 ])
 def test_detect_source(url, expected):
@@ -159,7 +158,6 @@ def test_detect_source_ytsearch_is_youtube():
     ("https://www.youtube.com/watch?v=abc", YoutubeDownloader, Source.YOUTUBE),
     ("https://youtu.be/abc", YoutubeDownloader, Source.YOUTUBE),
     ("https://soundcloud.com/artist/track", SoundcloudDownloader, Source.SOUNDCLOUD),
-    ("https://open.spotify.com/track/xyz", SpotifyDownloader, Source.SPOTIFY),
 ])
 def test_downloader_for_picks_right_implementation(url, cls, source):
     dl = downloader_for(url)
@@ -168,9 +166,13 @@ def test_downloader_for_picks_right_implementation(url, cls, source):
     assert cls.handles(url)
 
 
-def test_downloader_for_rejects_unsupported():
+@pytest.mark.parametrize("url", [
+    "https://example.com/song.mp3",
+    "https://open.spotify.com/track/xyz",  # Spotify support was removed
+])
+def test_downloader_for_rejects_unsupported(url):
     with pytest.raises(ValueError):
-        downloader_for("https://example.com/song.mp3")
+        downloader_for(url)
 
 
 def test_downloader_is_abstract():
@@ -211,12 +213,11 @@ def test_failure_explanation_is_polymorphic():
     sc = SoundcloudDownloader()._explain_failure("This video is DRM protected", "u")
     assert "DRM" in sc and "encrypted" in sc
 
-    sp = SpotifyDownloader()._explain_failure("Unable to download webpage", "u")
-    assert "Spotify" in sp and "YouTube" in sp
 
-
-def test_spotify_select_result_unwraps_search_playlist():
-    dl = SpotifyDownloader()
+def test_select_result_unwraps_search_playlist():
+    # ytsearch queries (from URL-less sheet rows) come back playlist-shaped; the
+    # default _select_result takes the top match, or errors when empty.
+    dl = YoutubeDownloader()
     info = {"_type": "playlist", "entries": [{"title": "match", "abr": 256}]}
     assert dl._select_result(info, "u")["title"] == "match"
     with pytest.raises(DownloadUnavailableError):

@@ -21,8 +21,8 @@ export default function Terms() {
             request. Only download content you own or are permitted to copy.
           </li>
           <li>
-            Respect the copyright, terms, and licenses of YouTube, SoundCloud, Spotify, and the
-            rights holders of the source material. CLAZZZIKS does not grant you any rights to that
+            Respect the copyright, terms, and licenses of YouTube, SoundCloud, and the rights
+            holders of the source material. CLAZZZIKS does not grant you any rights to that
             content.
           </li>
           <li>
@@ -38,7 +38,7 @@ export default function Terms() {
             its use. Continued use constitutes acceptance of these terms.
           </li>
           <li>
-            :middle_finger: If you are being paid to use these services, you need to pay the authors via their offical / licensed channels.
+            🖕 If you are being paid to use these audio tracks, you better pay the authors and labels via their offical / licensed channels (Bandcamp, Beatport, Label, ...)
           </li>
         </ol>
       </div>

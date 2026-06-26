@@ -7,6 +7,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth'
@@ -18,8 +19,10 @@ interface AuthState {
   loading: boolean
   firebaseEnabled: boolean
   signInWithGoogle: () => Promise<void>
-  signInWithEmail: (email: string, password: string) => Promise<void>
-  signUpWithEmail: (email: string, password: string) => Promise<void>
+  // Email/password methods resolve to an informational notice string (e.g. "check
+  // your inbox") when sign-in is blocked pending verification, or void on success.
+  signInWithEmail: (email: string, password: string) => Promise<string | void>
+  signUpWithEmail: (email: string, password: string) => Promise<string | void>
   signOut: () => Promise<void>
 }
 
@@ -55,11 +58,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signInWithEmail(email, password) {
         if (!auth) return
-        await signInWithEmailAndPassword(auth, email, password)
+        const cred = await signInWithEmailAndPassword(auth, email, password)
+        // The backend rejects unverified emails (they're attacker-controllable),
+        // so don't keep an unverified user signed in — re-send the link and stop.
+        if (!cred.user.emailVerified) {
+          await sendEmailVerification(cred.user)
+          await fbSignOut(auth)
+          return 'Email not verified — we re-sent the link. Verify it, then log in.'
+        }
       },
       async signUpWithEmail(email, password) {
         if (!auth) return
-        await createUserWithEmailAndPassword(auth, email, password)
+        const cred = await createUserWithEmailAndPassword(auth, email, password)
+        // New password accounts start unverified; send the link and sign back out
+        // until the address is confirmed.
+        await sendEmailVerification(cred.user)
+        await fbSignOut(auth)
+        return 'Account created. Check your email for a verification link, then log in.'
       },
       async signOut() {
         if (!auth) return

@@ -43,11 +43,18 @@ _init_attempted = False
 
 @dataclass(frozen=True)
 class AuthUser:
-    """The authenticated caller. ``anonymous`` is True in dev when auth is off."""
+    """The authenticated caller. ``anonymous`` is True in dev when auth is off.
+
+    ``email_verified`` mirrors the Firebase token claim. The whole authorization
+    model (allowlist, admin, VIP) keys off ``email``, so an **unverified** address
+    must never be honoured — with email/password signup enabled, the email claim is
+    otherwise attacker-controllable. ``require_user`` enforces this.
+    """
 
     uid: str
     email: str | None
     name: str | None = None
+    email_verified: bool = False
     anonymous: bool = False
 
 
@@ -144,6 +151,9 @@ def verify_token(id_token: str) -> AuthUser:
         uid=decoded["uid"],
         email=decoded.get("email"),
         name=decoded.get("name"),
+        # Google sign-in always sets this true; email/password is false until the
+        # user clicks the verification link. Default false (fail closed).
+        email_verified=bool(decoded.get("email_verified", False)),
     )
 
 
@@ -206,8 +216,9 @@ async def require_user(request: Request) -> AuthUser:
     """FastAPI dependency: resolve the signed-in user for a protected route.
 
     - Auth not configured (dev/tests): returns an anonymous user, logs a warning.
-    - Configured: requires a valid bearer token (401 if missing/invalid) and, when
-      ``CLAZZZIKS_ALLOWED_EMAILS`` is set, that the email is allowlisted (403).
+    - Configured: requires a valid bearer token (401 if missing/invalid), a
+      **verified** email (403 otherwise), and — when ``CLAZZZIKS_ALLOWED_EMAILS``
+      is set — that the email is allowlisted (403).
     """
     if not auth_configured():
         logger.warning("auth not configured — allowing anonymous request to %s", request.url.path)
@@ -218,6 +229,14 @@ async def require_user(request: Request) -> AuthUser:
         raise HTTPException(status_code=401, detail="Missing bearer token.")
 
     user = verify_token(token)
+
+    # The authz model (allowlist / admin / VIP) trusts the email claim, so reject
+    # unverified addresses outright. With email/password signup enabled an attacker
+    # could otherwise register a victim's address (e.g. the admin's) and inherit
+    # its privileges without ever proving ownership.
+    if not user.email_verified:
+        logger.warning("rejecting unverified email for %s", request.url.path)
+        raise HTTPException(status_code=403, detail="Verify your email address before continuing.")
 
     allowed = _allowed_emails()
     if allowed and (user.email or "").lower() not in allowed:

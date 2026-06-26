@@ -35,9 +35,10 @@ def configured(monkeypatch):
     assert auth.auth_configured() is True
 
 
-def _signed_in_as(monkeypatch, *, uid: str, email: str):
+def _signed_in_as(monkeypatch, *, uid: str, email: str, verified: bool = True):
     monkeypatch.setattr(
-        "clazzziks.auth.verify_token", lambda _t: AuthUser(uid=uid, email=email)
+        "clazzziks.auth.verify_token",
+        lambda _t: AuthUser(uid=uid, email=email, email_verified=verified),
     )
 
 
