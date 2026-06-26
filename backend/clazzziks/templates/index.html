@@ -42,31 +42,12 @@
 <body>
   <div class="card">
     <h1>CLAZZZIKS</h1>
-    <p class="sub">Paste one link for a single file, or many links (newlines, CSV text,
-      or a public Google Sheets URL) for a lossless ZIP bundle.</p>
+    <p class="sub">Paste one link for a single MP3, or many links (newlines, CSV text,
+      or a public Google Sheets URL) for an MP3 ZIP bundle.</p>
 
     <form id="form">
       <label for="links">Link(s)</label>
       <textarea id="links" name="links" placeholder="https://youtu.be/...&#10;https://soundcloud.com/...&#10;https://open.spotify.com/track/..."></textarea>
-
-      <div class="row">
-        <div>
-          <label for="format">Format</label>
-          <select id="format" name="format">
-            {% for f in formats %}
-            <option value="{{ f }}" {% if f == default_format %}selected{% endif %}>{{ f|upper }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="bitrate">MP3 bitrate (kbps)</label>
-          <select id="bitrate" name="bitrate">
-            <option value="320" selected>320</option>
-            <option value="256">256</option>
-            <option value="192">192</option>
-          </select>
-        </div>
-      </div>
 
       <button type="submit" id="go">Download</button>
       <div class="note" id="note"></div>

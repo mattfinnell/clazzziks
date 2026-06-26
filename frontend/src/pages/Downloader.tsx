@@ -1,29 +1,22 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { fetchConfig, requestDownload, saveBlob, type Config } from '../api'
+import { fetchConfig, requestDownload, saveBlob } from '../api'
 import AsciiLogo from '../components/AsciiLogo'
+import Terms from '../components/Terms'
 import './Downloader.scss'
 
-const FALLBACK_CONFIG: Config = {
-  formats: ['wav', 'mp3', 'flac'],
-  default_format: 'mp3',
-  bundle_format: 'flac',
-  bitrates: [320, 256, 192],
-  default_bitrate: 320,
-}
-
 export default function Downloader() {
-  const configQuery = useQuery({ queryKey: ['config'], queryFn: fetchConfig })
-  const config = configQuery.data ?? FALLBACK_CONFIG
+  // Only used to probe backend availability — output is always MP3. Poll fast
+  // (150ms) while offline so recovery shows almost immediately, then back off to
+  // every 5s once the backend is reachable.
+  const configQuery = useQuery({
+    queryKey: ['config'],
+    queryFn: fetchConfig,
+    refetchInterval: (query) => (query.state.status === 'error' ? 150 : 5000),
+    refetchIntervalInBackground: true,
+  })
 
   const [links, setLinks] = useState('')
-  const [format, setFormat] = useState<string | null>(null)
-  const [bitrate, setBitrate] = useState<number | null>(null)
-
-  // Default the controls to the backend's config once it loads, while still
-  // letting the user override them.
-  const activeFormat = format ?? config.default_format
-  const activeBitrate = bitrate ?? config.default_bitrate
 
   const download = useMutation({
     mutationFn: requestDownload,
@@ -39,7 +32,7 @@ export default function Downloader() {
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!links.trim()) return
-    download.mutate({ links, format: activeFormat, bitrate: activeBitrate })
+    download.mutate({ links })
   }
 
   return (
@@ -54,9 +47,8 @@ export default function Downloader() {
           <AsciiLogo tagline="audio extraction terminal" />
 
           <p className="downloader__sub">
-            &gt; paste one link for a single file, or many (newlines, CSV, or a public Google
-            Sheets URL) for a lossless <strong>{config.bundle_format?.toUpperCase()}</strong> ZIP
-            bundle.
+            &gt; paste one link for a single <strong>MP3</strong>, or many (newlines, CSV, or a
+            public Google Sheets URL) for a <strong>MP3</strong> ZIP bundle.
           </p>
 
           <form onSubmit={onSubmit}>
@@ -70,34 +62,6 @@ export default function Downloader() {
                 'https://youtu.be/...\nhttps://soundcloud.com/...\nhttps://open.spotify.com/track/...'
               }
             />
-
-            <div className="downloader__row">
-              <div>
-                <label htmlFor="format">format</label>
-                <select id="format" value={activeFormat} onChange={(e) => setFormat(e.target.value)}>
-                  {config.formats.map((f) => (
-                    <option key={f} value={f}>
-                      {f.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="bitrate">mp3 bitrate [kbps]</label>
-                <select
-                  id="bitrate"
-                  value={activeBitrate}
-                  disabled={activeFormat !== 'mp3'}
-                  onChange={(e) => setBitrate(Number(e.target.value))}
-                >
-                  {config.bitrates.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
 
             <button type="submit" disabled={download.isPending}>
               {download.isPending ? 'EXECUTING…' : isBundle ? `FETCH BUNDLE x${linkCount}` : 'FETCH'}
@@ -120,6 +84,8 @@ export default function Downloader() {
               }`}
             </p>
           )}
+
+          <Terms />
         </div>
       </div>
     </div>

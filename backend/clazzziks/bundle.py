@@ -33,9 +33,9 @@ def download_bundle(
 ) -> BundleResult:
     """Download every URL, transcode to ``fmt`` and pack them into one ZIP.
 
-    The ZIP itself is lossless compression; using a lossless audio format
-    (FLAC/WAV) keeps the whole bundle lossless end to end. Individual failures
-    are collected rather than aborting the whole batch.
+    Bundles default to MP3 (``BUNDLE_FORMAT``) — lossless formats produced ZIPs
+    that were far too large. Individual failures are collected rather than
+    aborting the whole batch.
     """
     fmt = fmt if isinstance(fmt, AudioFormat) else AudioFormat.parse(fmt)
     outdir = Path(outdir)
@@ -46,17 +46,11 @@ def download_bundle(
     failures: list[tuple[str, str]] = []
     warnings: list[str] = []
 
-    if not fmt.lossless:
-        warnings.append(
-            f"Bundle format {fmt.value!r} is lossy; spec recommends a lossless "
-            f"format (FLAC/WAV) for bundles."
-        )
-
     log_event(
-        logger, 
-        logging.INFO, 
-        "bundle.start", 
-        count=len(urls), 
+        logger,
+        logging.INFO,
+        "bundle.start",
+        count=len(urls),
         format=fmt.value
     )
 
@@ -66,23 +60,23 @@ def download_bundle(
                 result = download_audio(url, fmt=fmt, outdir=tmp, bitrate=bitrate)
                 items.append(result)
                 warnings.extend(f"{result.title}: {w}" for w in result.warnings)
-                
+
             except Exception as exc:  # noqa: BLE001 - record and continue the batch
                 failures.append((url, str(exc)))
                 log_event(
-                    logger, 
-                    logging.WARNING, 
+                    logger,
+                    logging.WARNING,
                     "bundle.item_failed",
-                    url=url, 
+                    url=url,
                     error=str(exc),
                 )
 
         if not items:
             log_event(
-                logger, 
-                logging.ERROR, 
+                logger,
+                logging.ERROR,
                 "bundle.empty",
-                count=len(urls), 
+                count=len(urls),
                 failures=len(failures),
             )
 
@@ -94,11 +88,11 @@ def download_bundle(
         _write_zip(bundle_path, items)
 
     log_event(
-        logger, 
-        logging.INFO, 
+        logger,
+        logging.INFO,
         "bundle.complete",
-        items=len(items), 
-        failures=len(failures), 
+        items=len(items),
+        failures=len(failures),
         path=str(bundle_path),
     )
 

@@ -37,8 +37,10 @@ class AudioFormat(str, Enum):
 
 SUPPORTED_FORMATS = [f.value for f in AudioFormat]
 
-# The lossless format used for batch "lossless-compression bundles".
-BUNDLE_FORMAT = AudioFormat.FLAC
+# Format served to web/API users (single files and batch bundles alike). FLAC
+# bundles were far too large, so everything users get is MP3; FLAC/WAV remain in
+# the enum for explicit CLI use only.
+BUNDLE_FORMAT = AudioFormat.MP3
 
 
 def mp3_bitrate_warning(bitrate: int) -> str | None:

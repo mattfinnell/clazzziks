@@ -46,10 +46,10 @@ def _signed_in_as(monkeypatch, *, uid: str, email: str):
 def test_repeat_download_is_served_from_cache(client, tmp_path, monkeypatch):
     calls: list[int] = []
     monkeypatch.setattr(
-        "clazzziks.web.download_audio", _fake_download_factory(tmp_path, calls)
+        "clazzziks.api.download_audio", _fake_download_factory(tmp_path, calls)
     )
 
-    payload = {"links": "https://youtu.be/abc", "format": "mp3"}
+    payload = {"links": "https://youtu.be/abc"}
     first = client.post("/api/download", data=payload)
     second = client.post("/api/download", data=payload)
 
@@ -59,14 +59,14 @@ def test_repeat_download_is_served_from_cache(client, tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
-def test_cache_is_per_format(client, tmp_path, monkeypatch):
+def test_distinct_sources_are_cached_separately(client, tmp_path, monkeypatch):
     calls: list[int] = []
     monkeypatch.setattr(
-        "clazzziks.web.download_audio", _fake_download_factory(tmp_path, calls)
+        "clazzziks.api.download_audio", _fake_download_factory(tmp_path, calls)
     )
-    client.post("/api/download", data={"links": "https://youtu.be/abc", "format": "mp3"})
-    client.post("/api/download", data={"links": "https://youtu.be/abc", "format": "flac"})
-    # Different file type for the same source is a cache miss -> a second fetch.
+    client.post("/api/download", data={"links": "https://youtu.be/abc"})
+    client.post("/api/download", data={"links": "https://youtu.be/xyz"})
+    # Different source URLs are independent cache entries -> two fetches.
     assert len(calls) == 2
 
 
@@ -75,7 +75,7 @@ def test_cache_is_per_format(client, tmp_path, monkeypatch):
 def test_non_vip_is_rate_limited(client, configured, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "2")
     _signed_in_as(monkeypatch, uid="u1", email="user@example.com")
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_download_factory(tmp_path, []))
     headers = {"Authorization": "Bearer t"}
 
     data = {"links": "https://youtu.be/abc"}
@@ -90,7 +90,7 @@ def test_vip_with_custom_limit_is_capped(client, configured, tmp_path, monkeypat
     # A VIP can be given a finite per-user limit by an admin.
     db.add_vip("vip@example.com", rate_limit=1)
     _signed_in_as(monkeypatch, uid="v1", email="vip@example.com")
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_download_factory(tmp_path, []))
     headers = {"Authorization": "Bearer t"}
 
     data = {"links": "https://youtu.be/abc"}
@@ -102,7 +102,7 @@ def test_vip_bypasses_rate_limit(client, configured, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "1")
     db.add_vip("vip@example.com")
     _signed_in_as(monkeypatch, uid="v1", email="vip@example.com")
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_download_factory(tmp_path, []))
     headers = {"Authorization": "Bearer t"}
 
     data = {"links": "https://youtu.be/abc"}
@@ -112,7 +112,7 @@ def test_vip_bypasses_rate_limit(client, configured, tmp_path, monkeypatch):
 
 def test_no_rate_limit_in_open_mode(client, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "1")
-    monkeypatch.setattr("clazzziks.web.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.api.download_audio", _fake_download_factory(tmp_path, []))
     # Auth not configured -> anonymous, never rate limited (dev stays frictionless).
     data = {"links": "https://youtu.be/abc"}
     assert client.post("/api/download", data=data).status_code == 200

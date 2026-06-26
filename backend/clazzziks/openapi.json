@@ -57,7 +57,7 @@
       "post": {
         "operationId": "postDownload",
         "summary": "Download one audio file (single link) or a ZIP bundle (many links).",
-        "description": "Pass one link to get a single transcoded audio file. Pass multiple links\n(newline / comma / whitespace separated, or a public Google Sheets URL that\nexpands to many) to get a lossless-compression ZIP bundle.\n\nProtected: send the caller's Firebase ID token as `Authorization: Bearer <token>`.\nAuth is enforced only when the backend is configured with Firebase credentials.",
+        "description": "Pass one link to get a single 320kbps MP3 file. Pass multiple links\n(newline / comma / whitespace separated, or a public Google Sheets URL that\nexpands to many) to get a ZIP bundle of MP3s. Output is always MP3.\n\nProtected: send the caller's Firebase ID token as `Authorization: Bearer <token>`.\nAuth is enforced only when the backend is configured with Firebase credentials.",
         "security": [{ "firebaseToken": [] }],
         "requestBody": {
           "required": true,
@@ -91,7 +91,7 @@
             }
           },
           "400": {
-            "description": "Invalid input (no links, no valid links, or unsupported format).",
+            "description": "Invalid input (no links provided, or no valid links found).",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -341,13 +341,8 @@
       "FormatsConfig": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "formats",
-          "default_format",
-          "bundle_format",
-          "default_bitrate",
-          "bitrates"
-        ],
+        "required": ["formats", "default_format", "bundle_format"],
+        "description": "The format served to users — always MP3. Kept so the frontend can probe backend availability.",
         "properties": {
           "formats": {
             "type": "array",
@@ -355,32 +350,18 @@
             "minItems": 1
           },
           "default_format": { "$ref": "#/components/schemas/AudioFormat" },
-          "bundle_format": { "$ref": "#/components/schemas/AudioFormat" },
-          "default_bitrate": { "type": "integer", "minimum": 1 },
-          "bitrates": {
-            "type": "array",
-            "items": { "type": "integer", "minimum": 1 },
-            "minItems": 1
-          }
+          "bundle_format": { "$ref": "#/components/schemas/AudioFormat" }
         }
       },
       "DownloadRequest": {
         "type": "object",
         "required": ["links"],
+        "description": "Output is always 320kbps MP3 — single files and ZIP bundles alike.",
         "properties": {
           "links": {
             "type": "string",
             "description": "One or more links: a single URL, many URLs (newline/comma/space separated), or a public Google Sheets URL.",
             "minLength": 1
-          },
-          "format": {
-            "$ref": "#/components/schemas/AudioFormat",
-            "description": "Output format. Defaults to mp3 for a single link, flac for a bundle."
-          },
-          "bitrate": {
-            "type": "integer",
-            "description": "MP3 bitrate in kbps (ignored for lossless formats). Defaults to 320.",
-            "minimum": 1
           }
         }
       },

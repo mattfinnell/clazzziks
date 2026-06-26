@@ -19,14 +19,14 @@ uv sync --extra dev   # installs runtime + test dependencies into .venv
 ## Running the server
 
 ```bash
-uv run clazzziks-web                     # http://127.0.0.1:5000
-uv run clazzziks-web --port 8080 --reload
+uv run api                               # http://127.0.0.1:5000
+uv run api --port 8080 --reload
 ```
 
 Or with uvicorn directly:
 
 ```bash
-uv run uvicorn clazzziks.web:app --reload
+uv run uvicorn clazzziks.api:app --reload
 ```
 
 ## CLI
@@ -81,7 +81,7 @@ Controlled via environment variables:
 human-readable terminal output — recommended for local development:
 
 ```bash
-CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload
+CLAZZZIKS_LOG_FORMAT=pretty uv run api --reload
 ```
 
 In production (Docker / ECS) the default `json` format is used so structured
@@ -92,7 +92,7 @@ logs flow cleanly into CloudWatch.
 ```
 backend/
 ├── clazzziks/
-│   ├── web.py              # FastAPI app + /api routes (cache, rate limit, admin)
+│   ├── api.py              # FastAPI app + /api routes (cache, rate limit, admin)
 │   ├── cli.py              # clazzziks CLI entry point
 │   ├── admin.py            # clazzziks-db CLI (manage the VIP group from the shell)
 │   ├── auth.py             # Firebase token verification + require_user/require_admin
@@ -124,8 +124,8 @@ backend/
 └── uv.lock
 ```
 
-The web server writes downloads to `tracks/<request_id>/` at the **repo root**
-(two levels above `web.py`). The CLI defaults to `backend/tracks/` when invoked
+The API server writes downloads to `tracks/<request_id>/` at the **repo root**
+(two levels above `api.py`). The CLI defaults to `backend/tracks/` when invoked
 from `backend/`.
 
 ## API

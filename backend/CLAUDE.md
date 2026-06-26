@@ -11,8 +11,8 @@ Always prefix with `uv run` from `backend/`:
 docker compose up -d db        # Postgres — required for tests/app
 uv run pytest                  # unit + contract tests (need Postgres up)
 uv run pytest -m e2e -v        # real-network e2e tests
-uv run clazzziks-web --reload  # dev server (JSON logs, default)
-CLAZZZIKS_LOG_FORMAT=pretty uv run clazzziks-web --reload  # coloured dev logs
+uv run api --reload  # dev server (JSON logs, default)
+CLAZZZIKS_LOG_FORMAT=pretty uv run api --reload  # coloured dev logs
 uv run clazzziks-db vip ls     # manage the VIP group / rate limits
 ```
 
@@ -46,7 +46,7 @@ monkeypatch `clazzziks.auth.verify_token` — they never need firebase-admin or 
 network (see `tests/test_auth.py`).
 
 - `CLAZZZIKS_ALLOWED_EMAILS` (optional) restricts access to an allowlist → `403`.
-- Auth aborts use `HTTPException`; a handler in `web.py` renders them in the
+- Auth aborts use `HTTPException`; a handler in `api.py` renders them in the
   `{"error": ...}` contract shape (so `401`/`403` match the `Error` schema).
 - When adding a protected route, add its `security` + `401`/`403` responses to
   `openapi.json` (the `firebaseToken` bearer scheme is already defined there).
@@ -59,7 +59,7 @@ read lazily; the engine is cached per-URL so tests can point at another database
 Public functions return small frozen dataclasses (`CachedTrack`, `Vip`) — callers
 never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first use):
 
-- **`track_cache`** — keyed by `(url, fmt)` (download source + file type). `web.py`
+- **`track_cache`** — keyed by `(url, fmt)` (download source + file type). `api.py`
   checks it before a single-link download and re-serves the existing file on a hit
   (a stale row whose file is gone is pruned → miss). Bundle items are cached too.
 - **`vip`** — rate-limit policy per user: `is_admin` flag + nullable `rate_limit`
@@ -72,7 +72,7 @@ never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first u
   the variable is unset, no owner is seeded.
 - **`download_log`** — one row per served download; drives the rate-limit count.
 
-**Rate limiting is FastAPI middleware** (`_rate_limit` in `web.py`'s `create_app`),
+**Rate limiting is FastAPI middleware** (`_rate_limit` in `api.py`'s `create_app`),
 enforced before any work on `POST /api/download`. `db.effective_rate_limit(email)`
 resolves the cap: a normal user gets `CLAZZZIKS_RATE_LIMIT` (default **20**) per
 `CLAZZZIKS_RATE_WINDOW_SECONDS` (default 3600); a VIP gets their configured
@@ -117,7 +117,7 @@ Defined in `clazzziks/formats.py`:
 
 ## File output
 
-- Web server writes downloads to `tracks/<request_id>/` (one subdirectory per HTTP request, keyed by the 8-char observability request ID from `request.state.request_id`).
+- API server writes downloads to `tracks/<request_id>/` (one subdirectory per HTTP request, keyed by the 8-char observability request ID from `request.state.request_id`).
 - CLI writes to the directory passed via `-o/--outdir` (default: `tracks/`).
 - `tracks/` is gitignored for audio content; the directory itself is kept via `.gitkeep`.
 

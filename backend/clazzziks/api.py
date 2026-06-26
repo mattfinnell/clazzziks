@@ -14,7 +14,7 @@ source of truth.
 Routes:
     GET    /api/health            -> {"status": "ok"}
     GET    /api/openapi.json      -> the shared OpenAPI contract document
-    GET    /api/formats           -> supported formats + defaults (drives the UI)
+    GET    /api/formats           -> the served format (always MP3); backend probe
     GET    /api/me                -> the caller's VIP/admin status
     GET    /api/admin/vips        -> list the VIP group (admin only)
     POST   /api/admin/vips        -> add/update a VIP (admin only)
@@ -36,7 +36,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from .formats import AudioFormat, SUPPORTED_FORMATS, DEFAULT_MP3_BITRATE, BUNDLE_FORMAT
+from .formats import AudioFormat, DEFAULT_MP3_BITRATE, BUNDLE_FORMAT
 from .downloader import download_audio, DownloadUnavailableError
 from .bundle import download_bundle
 from .inputs import collect_urls
@@ -90,12 +90,13 @@ async def openapi():
 
 @api.get("/formats")
 async def formats():
+    # Users no longer pick a format or bitrate — everything is 320kbps MP3. This
+    # endpoint stays so the frontend can probe backend availability and discover
+    # the single served format.
     return {
-        "formats": SUPPORTED_FORMATS,
+        "formats": [AudioFormat.MP3.value],
         "default_format": AudioFormat.MP3.value,
         "bundle_format": BUNDLE_FORMAT.value,
-        "default_bitrate": DEFAULT_MP3_BITRATE,
-        "bitrates": [320, 256, 192],
     }
 
 
@@ -176,7 +177,9 @@ async def download(
     if not raw_input:
         return _error("No link(s) provided.", 400)
 
-    bitrate = _parse_bitrate(payload.get("bitrate"))
+    # Everything users download is 320kbps MP3 — there is no format/bitrate choice.
+    fmt = AudioFormat.MP3
+    bitrate = DEFAULT_MP3_BITRATE
 
     try:
         urls = collect_urls(raw_input)
@@ -195,9 +198,7 @@ async def download(
 
     try:
         if len(urls) == 1:
-            fmt = _parse_format(payload.get("format"), default=AudioFormat.MP3)
             return _serve_single(urls[0], fmt, bitrate, request_id, user)
-        fmt = _parse_format(payload.get("format"), default=BUNDLE_FORMAT)
         return _serve_bundle(urls, fmt, bitrate, request_id, user)
     except ValueError as exc:
         return _error(str(exc), 400)
@@ -281,11 +282,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
-        return _TEMPLATES.TemplateResponse(
-            request,
-            "index.html",
-            {"formats": SUPPORTED_FORMATS, "default_format": AudioFormat.MP3.value},
-        )
+        return _TEMPLATES.TemplateResponse(request, "index.html", {})
 
     return app
 
@@ -299,19 +296,6 @@ async def _read_payload(request: Request) -> dict:
         return data if isinstance(data, dict) else {}
     form = await request.form()
     return {k: v for k, v in form.items()}
-
-
-def _parse_format(value, *, default: AudioFormat) -> AudioFormat:
-    if not value:
-        return default
-    return AudioFormat.parse(value)
-
-
-def _parse_bitrate(value) -> int:
-    try:
-        return int(value) if value else DEFAULT_MP3_BITRATE
-    except (TypeError, ValueError):
-        return DEFAULT_MP3_BITRATE
 
 
 def _serve_single(
@@ -404,7 +388,7 @@ def _error(message: str, status: int):
     return JSONResponse(status_code=status, content={"error": message})
 
 
-# Allow `uvicorn clazzziks.web:app` and `python -m clazzziks.web`.
+# Allow `uvicorn clazzziks.api:app` and `python -m clazzziks.api`.
 app = create_app()
 
 
@@ -419,7 +403,7 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
     uvicorn.run(
-        "clazzziks.web:app", host=args.host, port=args.port, reload=args.reload
+        "clazzziks.api:app", host=args.host, port=args.port, reload=args.reload
     )
 
 
