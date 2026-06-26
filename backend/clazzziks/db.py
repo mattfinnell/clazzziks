@@ -18,8 +18,9 @@ functions return small frozen dataclasses (not ORM rows) so callers never deal
 with sessions or detached-instance surprises.
 
 On first use of a database (an empty ``vip`` table) the owner from
-``CLAZZZIKS_ADMIN_EMAIL`` (default ``mattfinnell104@gmail.com``) is seeded as an
-admin, so the owner can never be locked out of the dashboard.
+``CLAZZZIKS_ADMIN_EMAIL`` is seeded as an admin, so the owner can never be locked
+out of the dashboard. There is no built-in default — when the variable is unset
+no owner is seeded (dev/open mode treats the local caller as admin anyway).
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 DEFAULT_DATABASE_URL = "postgresql+psycopg://clazzziks:clazzziks@localhost:5432/clazzziks"
-DEFAULT_ADMIN_EMAIL = "mattfinnell104@gmail.com"
+DEFAULT_ADMIN_EMAIL = ""  # no personal default — configure via CLAZZZIKS_ADMIN_EMAIL
 DEFAULT_RATE_LIMIT = 20  # tracks per window for a normal (non-VIP) user
 DEFAULT_RATE_WINDOW_SECONDS = 3600  # one hour
 
@@ -133,13 +134,27 @@ def _now() -> datetime:
 
 
 def _seed_admin(engine: Engine) -> None:
-    """Seed the owner as admin whenever the VIP group is empty (anti-lockout)."""
+    """Ensure the owner (``CLAZZZIKS_ADMIN_EMAIL``) is always a VIP **and** admin.
+
+    Runs on every startup/deploy and is idempotent: the owner is upserted into the
+    VIP group with ``is_admin=True`` so they are both VIP (a row exists) and admin,
+    and can never be locked out — even on a database that already has other VIPs.
+    An existing owner row keeps its configured ``rate_limit`` (unlimited by default)
+    and is only promoted to admin if needed. No-op when no admin email is set.
+    """
+    email = _admin_seed_email()
+    if not email:
+        return
     with Session(engine) as s:
-        if s.scalar(select(func.count()).select_from(VipRow)) == 0:
+        row = s.get(VipRow, email)
+        if row is None:
             s.add(VipRow(
-                email=_admin_seed_email(), is_admin=True,
+                email=email, is_admin=True,
                 note="seeded owner", rate_limit=None, added_at=_now(),
             ))
+            s.commit()
+        elif not row.is_admin:
+            row.is_admin = True
             s.commit()
 
 
@@ -265,10 +280,12 @@ def remove_vip(email: str) -> bool:
             return False
         s.delete(row)
         s.flush()
-        # Anti-lockout: never let the group go fully empty — re-seed the owner.
-        if s.scalar(select(func.count()).select_from(VipRow)) == 0:
+        # Anti-lockout: never let the group go fully empty — re-seed the owner
+        # (only when an admin email is configured; otherwise allow empty).
+        seed = _admin_seed_email()
+        if seed and s.scalar(select(func.count()).select_from(VipRow)) == 0:
             s.add(VipRow(
-                email=_admin_seed_email(), is_admin=True,
+                email=seed, is_admin=True,
                 note="seeded owner", rate_limit=None, added_at=_now(),
             ))
         s.commit()

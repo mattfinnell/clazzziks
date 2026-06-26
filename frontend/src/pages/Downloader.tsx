@@ -112,6 +112,14 @@ export default function Downloader() {
             warnings={download.data?.warnings ?? null}
             filename={download.data?.filename ?? ''}
           />
+
+          {configQuery.isError && (
+            <p className="downloader__note downloader__note--error" role="alert">
+              {`!! backend unreachable — ${
+                (configQuery.error as Error)?.message ?? 'cannot reach API'
+              }`}
+            </p>
+          )}
         </div>
       </div>
     </div>

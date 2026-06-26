@@ -1,0 +1,6 @@
+name: clazzziks
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: CLAZZZIKS AWS infrastructure (EC2, S3, CloudFront, ECR)

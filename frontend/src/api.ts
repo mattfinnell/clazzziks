@@ -29,8 +29,15 @@ export interface Config {
 }
 
 export async function fetchConfig(): Promise<Config> {
-  const resp = await fetch(`${API_BASE}/formats`)
-  if (!resp.ok) throw new Error(`Backend unavailable (${resp.status})`)
+  let resp: Response
+  try {
+    resp = await fetch(`${API_BASE}/formats`)
+  } catch (e) {
+    // fetch rejects on DNS/connection/TLS failures — surface that distinctly
+    // from an HTTP error so the UI can show *why* the backend is unreachable.
+    throw new Error(`network error reaching ${API_BASE}/formats (${(e as Error).message})`)
+  }
+  if (!resp.ok) throw new Error(`${API_BASE}/formats returned ${resp.status} ${resp.statusText}`)
   return resp.json()
 }
 

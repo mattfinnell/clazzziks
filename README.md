@@ -9,6 +9,8 @@ web utility, a CLI, or a small HTTP API.
 ```
 backend/    Python package (yt-dlp + ffmpeg core, CLI, FastAPI API) + tests
 frontend/   React + Vite web utility that talks to the backend over /api
+infra/      Pulumi (TypeScript) — EC2, S3, CloudFront, ECR
+Dockerfile  Container image for the FastAPI backend (used by Pulumi/ECR)
 ```
 
 The frontend calls the backend only through `/api`. In development the Vite dev
@@ -39,8 +41,8 @@ on both halves — see [Authentication](#authentication).
 - **YouTube / SoundCloud** are downloaded directly with [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
   and transcoded with `ffmpeg`.
 - **Spotify** streams are DRM-protected and cannot be downloaded. CLAZZZIKS reads
-  the track's public metadata and finds the matching recording on YouTube (the
-  same approach `spotdl` uses).
+  the track's public metadata via the Spotify oEmbed endpoint and finds the
+  matching recording on YouTube (the same approach `spotdl` uses).
 
 ## Requirements
 
@@ -153,7 +155,7 @@ keys are meant to ship in client bundles; access is controlled by Auth rules.
 
 | Format | Lossless | Notes                                         |
 |--------|----------|-----------------------------------------------|
-| WAV    | yes      | uncompressed                                  |
+| WAV    | yes      | uncompressed PCM                              |
 | FLAC   | yes      | default for bundles; recommended for quality  |
 | MP3    | no       | 320kbps default; warns below 320              |
 
@@ -174,3 +176,22 @@ uv run pytest -m e2e -v      # real-network end-to-end tests (requires ffmpeg + 
 
 The e2e suite has two layers: `test_e2e.py` exercises the downloader directly;
 `test_api_e2e.py` runs the same real downloads through the full HTTP API stack.
+
+## Deploy to AWS
+
+The `infra/` directory is a Pulumi (TypeScript) project that provisions the
+stack: EC2 (Amazon Linux 2023, Docker + nginx), Elastic IP, 50 GiB EBS scratch
+volume, S3 + CloudFront for the React SPA, and an ECR repository for the backend
+image. Staging uses a t3.micro; production uses a t3.small.
+
+Prerequisites: Docker, Node.js 18+, AWS CLI configured, Pulumi CLI
+(see https://www.pulumi.com/docs/install/).
+
+```bash
+cd frontend && pnpm install && pnpm build   # build React first
+cd infra && npm install
+pulumi stack select production
+pulumi up
+```
+
+See `infra/README.md` for the full command reference and stack outputs.

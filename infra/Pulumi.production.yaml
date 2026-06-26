@@ -1,0 +1,19 @@
+config:
+  aws:region: us-west-2
+  clazzziks:instanceType: t3.small
+  clazzziks:retainBucket: "true"
+  # Database (durable — backups retained, deletion-protected, final snapshot on destroy).
+  # Bump dbInstanceClass to db.t4g.small if load requires it.
+  clazzziks:dbInstanceClass: db.t4g.micro
+  clazzziks:dbAllocatedStorage: "20"
+  clazzziks:dbBackupRetentionDays: "7"
+  clazzziks:dbDeletionProtection: "true"
+  # Backend knobs (non-secret).
+  clazzziks:rateLimit: "20"
+  clazzziks:rateWindowSeconds: "3600"
+  # Secrets — set out-of-band, never committed (stored in Secrets Manager):
+  #   pulumi config set --secret clazzziks:adminEmail <you@example.com>
+  # Firebase auth is optional; leave unset to run open:
+  #   pulumi config set --secret clazzziks:firebaseCredentials "$(cat sa.json)"
+  #   pulumi config set clazzziks:firebaseProjectId <project-id>
+  #   pulumi config set clazzziks:allowedEmails a@x.com,b@y.com
