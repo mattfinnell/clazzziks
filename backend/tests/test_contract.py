@@ -1,105 +1,48 @@
-"""Contract tests: the backend must conform to the shared ``openapi.json``.
+"""Contract tests: the committed GraphQL SDL is the single source of truth.
 
-``clazzziks/openapi.json`` is the single source of truth for the ``/api`` surface
-shared with the React frontend. These tests fail if the backend drifts from it,
-keeping both sides honest. Validation uses the schemas declared in the contract
-itself, so changing the contract automatically changes what's enforced here.
+``clazzziks/schema.graphql`` is the shared contract with the React frontend
+(``frontend/src/api.ts`` builds against these exact types/fields). These tests
+fail if the code-first schema drifts from the committed SDL, keeping both sides
+honest — the GraphQL replacement for the old hand-authored ``openapi.json``.
+
+Regenerate the SDL after an intentional schema change with::
+
+    uv run python -c "from clazzziks.schema import schema; \
+        open('clazzziks/schema.graphql','w').write(schema.as_str()+'\\n')"
 """
 
-# pylint: disable=missing-function-docstring,redefined-outer-name,wrong-import-position
+# pylint: disable=missing-function-docstring,redefined-outer-name
 
-import pytest
+from pathlib import Path
 
-jsonschema = pytest.importorskip("jsonschema")
+from clazzziks.schema import schema
+from clazzziks.formats import AudioFormat
 
-from clazzziks.contract import load_contract
-from clazzziks.formats import SUPPORTED_FORMATS, AudioFormat
+from .gql import gql_data
 
-# The ``client`` fixture (FastAPI TestClient) lives in conftest.py.
-
-
-def _validate(instance, schema_name):
-    """Validate ``instance`` against a named component schema in the contract.
-
-    The whole contract is used as the validation root so ``$ref`` pointers
-    (e.g. AudioFormat referenced inside FormatsConfig) resolve correctly.
-    """
-    contract = load_contract()
-    schema = {**contract, "$ref": f"#/components/schemas/{schema_name}"}
-    jsonschema.Draft202012Validator(schema).validate(instance)
+CONTRACT_PATH = Path(__file__).resolve().parents[1] / "clazzziks" / "schema.graphql"
 
 
-# --- the contract document itself ------------------------------------------
-
-def test_contract_is_a_valid_openapi_document():
-    contract = load_contract()
-    # Well-formed enough for our purposes: version, paths, and the schemas we use.
-    assert contract["openapi"].startswith("3.")
-    assert "/formats" in contract["paths"]
-    assert "/download" in contract["paths"]
-    for name in ("FormatsConfig", "Error", "Health", "AudioFormat"):
-        assert name in contract["components"]["schemas"]
-
-
-def test_contract_schemas_are_themselves_valid_json_schema():
-    # Catch typos in the hand-written contract (bad keywords, etc.).
-    for _, schema in load_contract()["components"]["schemas"].items():
-        jsonschema.Draft202012Validator.check_schema(schema)
-
-
-def test_contract_served_matches_packaged_document(client):
-    resp = client.get("/api/openapi.json")
-    assert resp.status_code == 200
-    assert resp.json() == load_contract()
-
-
-# --- contract <-> code alignment -------------------------------------------
-
-def test_contract_formats_enum_matches_code():
-    enum = load_contract()["components"]["schemas"]["AudioFormat"]["enum"]
-    assert enum == SUPPORTED_FORMATS == [f.value for f in AudioFormat]
-
-
-# --- live responses conform to the contract --------------------------------
-
-def test_health_response_conforms(client):
-    _validate(client.get("/api/health").json(), "Health")
-
-
-def test_formats_response_conforms(client):
-    resp = client.get("/api/formats")
-    _validate(resp.json(), "FormatsConfig")
-
-
-def test_formats_defaults_are_consistent_with_code(client):
-    data = client.get("/api/formats").json()
-    assert data["default_format"] == AudioFormat.MP3.value
-    assert data["default_format"] in data["formats"]
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [{"links": ""}, {"links": "not a url"}],
-)
-def test_error_responses_conform(client, payload):
-    resp = client.post("/api/download", data=payload)
-    assert resp.status_code == 400
-    _validate(resp.json(), "Error")
-
-
-def test_admin_users_response_conforms(client, monkeypatch):
-    # Open mode: the local caller is admin. Mock the Firebase listing so the
-    # response carries a populated User row to validate against the contract.
-    from clazzziks.auth import FirebaseUser
-
-    monkeypatch.setattr(
-        "clazzziks.api.list_firebase_users",
-        lambda: [FirebaseUser(
-            uid="u1", email="a@b.com", name="A", email_verified=True,
-            disabled=False, created_at="2026-01-01T00:00:00+00:00",
-            last_sign_in=None, provider="password",
-        )],
+def test_emitted_sdl_matches_committed_contract():
+    committed = CONTRACT_PATH.read_text(encoding="utf-8").strip()
+    current = schema.as_str().strip()
+    assert current == committed, (
+        "GraphQL schema drifted from clazzziks/schema.graphql — regenerate it "
+        "(see this module's docstring)."
     )
-    resp = client.get("/api/admin/users")
-    assert resp.status_code == 200
-    _validate(resp.json(), "UserList")
+
+
+def test_contract_declares_core_operations():
+    sdl = CONTRACT_PATH.read_text(encoding="utf-8")
+    for op in (
+        "config", "me", "vips", "users",
+        "download", "add_vip", "update_vip", "remove_vip", "sync_users",
+    ):
+        assert op in sdl, f"operation {op!r} missing from the contract SDL"
+
+
+def test_config_reports_mp3_only(client):
+    cfg = gql_data(client, "{ config { formats default_format bundle_format } }")["config"]
+    assert cfg["default_format"] == AudioFormat.MP3.value
+    assert cfg["default_format"] in cfg["formats"]
+    assert cfg["bundle_format"] == AudioFormat.MP3.value

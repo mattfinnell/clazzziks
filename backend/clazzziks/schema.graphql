@@ -1,0 +1,64 @@
+type Config {
+  formats: [String!]!
+  default_format: String!
+  bundle_format: String!
+}
+
+type DownloadResult {
+  token: String!
+  filename: String!
+  warnings: [String!]!
+  failures: [String!]!
+}
+
+type Me {
+  email: String
+  is_vip: Boolean!
+  is_admin: Boolean!
+  anonymous: Boolean!
+  rate_limit: Int
+}
+
+type Mutation {
+  add_vip(email: String!, note: String = null, is_admin: Boolean! = false, rate_limit: Int = null): [Vip!]!
+  update_vip(email: String!, note: String, is_admin: Boolean, rate_limit: Int): [Vip!]!
+  remove_vip(email: String!): [Vip!]!
+  sync_users: UserList!
+  download(links: String!): DownloadResult!
+}
+
+type Query {
+  config: Config!
+  me: Me!
+  vips: [Vip!]!
+  users: UserList!
+}
+
+type User {
+  email: String
+  name: String
+  email_verified: Boolean!
+  disabled: Boolean!
+  created_at: String
+  last_sign_in: String
+  provider: String
+  is_vip: Boolean!
+  is_admin: Boolean!
+  rate_limit: Int
+  used_this_window: Int!
+}
+
+type UserList {
+  users: [User!]!
+  window_seconds: Int!
+  auth_configured: Boolean!
+  last_synced_at: String
+}
+
+type Vip {
+  email: String!
+  is_admin: Boolean!
+  note: String
+  rate_limit: Int
+  added_at: String!
+}

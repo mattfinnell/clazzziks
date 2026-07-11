@@ -93,7 +93,8 @@ logs flow cleanly into CloudWatch.
 ```
 backend/
 ├── clazzziks/
-│   ├── api.py              # FastAPI app + /api routes (cache, rate limit, admin)
+│   ├── api.py              # FastAPI host: mounts /graphql + /files/{token} stream
+│   ├── schema.py           # Strawberry GraphQL schema (queries, mutations, auth, rate limit)
 │   ├── cli.py              # clazzziks CLI entry point
 │   ├── admin.py            # clazzziks-db CLI (manage the VIP group from the shell)
 │   ├── auth.py             # Firebase token verification + require_user/require_admin
@@ -107,15 +108,15 @@ backend/
 │   ├── inputs.py           # URL / batch input parsing (files, CSV, Google Sheets)
 │   ├── sources.py          # platform detection (YouTube / SoundCloud)
 │   ├── logging_config.py   # structured (json/text/pretty) logging setup
-│   ├── contract.py         # loads openapi.json
-│   └── openapi.json        # shared API contract (frontend + backend source of truth)
+│   └── schema.graphql      # emitted SDL — shared API contract (source of truth: schema.py)
 ├── tests/
 │   ├── conftest.py         # FastAPI TestClient fixture + isolated Postgres tables
-│   ├── test_web.py         # API route tests (mocked downloaders)
-│   ├── test_auth.py        # Firebase auth dependency tests
+│   ├── gql.py              # GraphQL test helpers (gql_data, gql_error, do_download)
+│   ├── test_web.py         # GraphQL API tests (mocked downloaders)
+│   ├── test_auth.py        # Firebase auth / permission tests
 │   ├── test_db.py          # data-layer unit tests (cache, VIP, rate limit)
 │   ├── test_vip_api.py     # DB-backed API tests (cache, rate limit, VIP admin)
-│   ├── test_contract.py    # openapi.json conformance tests
+│   ├── test_contract.py    # SDL-drift conformance test
 │   ├── test_units.py       # unit tests
 │   ├── test_e2e.py         # real-network downloader e2e tests (pytest -m e2e)
 │   └── test_api_e2e.py     # real-network HTTP API e2e tests (pytest -m e2e)
@@ -130,28 +131,39 @@ from `backend/`.
 
 ## API
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/` | Swagger UI (interactive docs) |
-| `GET` | `/api/health` | `{"status": "ok"}` |
-| `GET` | `/api/formats` | Supported formats + defaults (drives the frontend UI) |
-| `GET` | `/api/openapi.json` | Shared API contract document |
-| `GET` | `/api/me` | Caller's VIP/admin status + effective rate limit |
-| `GET` | `/api/admin/vips` | List the VIP group (admin only) |
-| `POST` | `/api/admin/vips` | Add/update a VIP (admin only) |
-| `PATCH` | `/api/admin/vips/{email}` | Set a VIP's rate limit (admin only) |
-| `DELETE` | `/api/admin/vips/{email}` | Remove a VIP (admin only) |
-| `POST` | `/api/download` | Download one track or a ZIP bundle |
+The API is **GraphQL** at `POST /graphql` (GraphiQL on `GET /graphql`). Plus two
+plain HTTP routes: `GET /health` and the `GET /files/{token}` download stream
+(auth-gated; `token` comes from the `download` mutation).
 
-The full contract is defined in `clazzziks/openapi.json`. See the Database and
-Authentication sections of `CLAUDE.md` for the cache, VIP group, and rate-limit
-behaviour behind these routes.
+**Queries**
+
+| Operation | Description |
+|---|---|
+| `config` | Served format + defaults (always MP3; drives the frontend UI) |
+| `me` | Caller's VIP/admin status + effective rate limit |
+| `vips` | List the VIP group (admin only) |
+| `users` | All users joined with VIP state + usage (admin only) |
+
+**Mutations**
+
+| Operation | Description |
+|---|---|
+| `download(links)` | Download one track or a ZIP bundle → a `{token, filename, warnings, failures}` handle |
+| `add_vip(email, note, is_admin, rate_limit)` | Add/update a VIP (admin only) |
+| `update_vip(email, …)` | Change a VIP's note/role/rate limit (admin only) |
+| `remove_vip(email)` | Remove a VIP (admin only) |
+| `sync_users` | Refresh the Firebase→Postgres user mirror (admin only) |
+
+The contract is the emitted SDL, `clazzziks/schema.graphql` (source of truth:
+`clazzziks/schema.py`). See the Database and Authentication sections of `CLAUDE.md`
+for the cache, VIP group, and rate-limit behaviour behind these operations.
 
 ## Authentication
 
-`POST /api/download` accepts a Firebase ID token via `Authorization: Bearer <token>`.
-Auth is **enforced only when configured** — without a Firebase credential the API
-stays open (anonymous), which keeps local dev and the test suite frictionless.
+The `download` mutation (and admin operations) accept a Firebase ID token via
+`Authorization: Bearer <token>`. Auth is **enforced only when configured** — without
+a Firebase credential the API stays open (anonymous), which keeps local dev and the
+test suite frictionless.
 
 Configure via environment (see `.env.example` for the full list). `uv run api`
 auto-loads `backend/.env` (existing/exported vars take precedence); run it from
@@ -163,9 +175,10 @@ auto-loads `backend/.env` (existing/exported vars take precedence); run it from
 | `CLAZZZIKS_FIREBASE_PROJECT_ID` | Project id (for application-default credentials) |
 | `CLAZZZIKS_ALLOWED_EMAILS` | Comma-separated allowlist; others get `403`. Unset = any signed-in user |
 
-Verification lives in `clazzziks/auth.py` (the `require_user` dependency). Token
-verification failures return `401`, un-allowlisted users `403`, both in the
-`{"error": ...}` contract shape.
+Verification lives in `clazzziks/auth.py` and is enforced per-resolver by the
+`IsUser` / `IsAdmin` permission classes in `clazzziks/schema.py`. A denied operation
+returns a GraphQL error carrying the auth message (invalid token, unverified email,
+un-allowlisted user, or non-admin).
 
 ## Audio formats
 

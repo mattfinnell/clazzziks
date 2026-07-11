@@ -99,13 +99,20 @@ resource needs environment-specific values, read them in `config.ts` from
 - **Container env vars are wired in user data** — `docker run` receives
   `CLAZZZIKS_DATABASE_URL` plus the non-secret knobs and (when Firebase is set)
   `CLAZZZIKS_FIREBASE_CREDENTIALS` pointing at `/data/firebase.json`.
-- **CloudFront read timeout** for the `/api/*` origin is set to **60 s** in
-  `index.ts` (`originReadTimeout`). 60 s is the default account maximum; values up
+- **HTTPS is edge-enforced.** Every CloudFront behavior uses
+  `viewerProtocolPolicy: redirect-to-https` and attaches a `ResponseHeadersPolicy`
+  (`security-headers` in `cdn.ts`) that adds **HSTS**. The CloudFront↔origin hop is
+  intentionally HTTP (nginx :80); there is no ACM cert / custom domain (the default
+  CloudFront cert terminates TLS at the edge).
+- **The API behaviors are `/graphql` and `/files/*`** (was a single `/api/*` before
+  the GraphQL migration), both proxying to the EC2 origin.
+- **CloudFront read timeout** for the API origin is set to **60 s** in
+  `cdn.ts` (`originReadTimeout`). 60 s is the default account maximum; values up
   to 180 s require a Service Quotas increase for CloudFront's "Origin response
   timeout" (without it, `pulumi up` fails with `InvalidOriginReadTimeout`).
   Downloads that take longer must hit the Elastic IP directly over HTTP
   (`elasticIp` stack output), which reaches nginx (300 s) and bypasses CloudFront.
-- **CloudFront `/api/*` origin is the EIP's public DNS** (`eip.publicDns`), not the
+- **The API origin domain is the EIP's public DNS** (`eip.publicDns`), not the
   raw IP — CloudFront rejects an IP address as an origin domain name.
 - **nginx** proxies port 80 → localhost:8000 with 300 s `proxy_read_timeout` and
   `proxy_send_timeout`. The full nginx config is written by the EC2 user data
@@ -178,6 +185,6 @@ after `up` returns; the API may 502/504 briefly before it's live.
 
 ### Verify
 - `pulumi stack output siteUrl` → open the CloudFront HTTPS URL in a browser.
-- `curl http://$(pulumi stack output elasticIp)/api/formats` → direct EIP (bypasses the 60 s CF timeout); expect 200 JSON once booted.
+- `curl http://$(pulumi stack output elasticIp)/health` → direct EIP (bypasses the 60 s CF timeout); expect `{"status":"ok"}` once booted. A GraphQL probe: `curl -s http://$(pulumi stack output elasticIp)/graphql -H 'content-type: application/json' -d '{"query":"{ config { formats } }"}'`.
 - `pulumi stack output dbEndpoint` → RDS hostname (private).
 - Boot debugging: `aws ec2 get-console-output --region us-west-2 --instance-id <id> | tail -40`.
