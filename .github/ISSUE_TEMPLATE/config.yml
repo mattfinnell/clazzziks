@@ -1,0 +1,4 @@
+# Issue template chooser config.
+# blank_issues_enabled: allow opening an issue without a template (kept on for
+# quick notes; pick a template above for anything that needs triage).
+blank_issues_enabled: true

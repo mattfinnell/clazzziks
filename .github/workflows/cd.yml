@@ -1,0 +1,80 @@
+name: CD
+
+# Runs after code lands on main. CI (above) is the gate for PRs; this workflow
+# builds the backend image so it's ready to deploy.
+#
+# NOTE: `pulumi up` itself is NOT run here. Per infra/CLAUDE.md, deploys are a
+# real, billable AWS operation against Pulumi Cloud (org: mattfinnell), require
+# a local Docker daemon to build/push the ECR image via `awsx.ecr.Image`, and
+# the frontend must be built and synced to S3 as part of the same `pulumi up`.
+# Automating that safely needs AWS OIDC + Pulumi access token secrets that
+# aren't configured yet — wire them up before turning this into a real deploy
+# job, then mirror the `workers-image` pattern below for the actual push.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false # never cancel an in-flight publish/deploy
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Build the backend (FastAPI + ffmpeg) image to confirm it's deployable.
+  #    Not pushed anywhere yet — infra/index.ts builds+pushes to ECR itself
+  #    during `pulumi up`, so this is just an early build-break signal.
+  backend-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Frontend build, uploaded as an artifact for manual inspection before a
+  #    real `pulumi up` (which does its own `pnpm build` + S3 sync).
+  frontend-bundle:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.sha }}
+          path: frontend/dist
+
+  # ── Deploy placeholder. See the note at the top of this file: `pulumi up`
+  #    needs AWS OIDC + a Pulumi access token wired up as repo/environment
+  #    secrets before this can run for real. The `production` environment
+  #    below adds a manual-approval gate once that's configured.
+  deploy:
+    needs: [backend-image, frontend-bundle]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # for OIDC-based AWS auth (aws-actions/configure-aws-credentials)
+    steps:
+      - name: Deploy (not yet configured)
+        run: |
+          echo "::notice::Images/bundles built. Wire up the real deploy here:"
+          echo "  - authenticate to AWS via OIDC + set PULUMI_ACCESS_TOKEN"
+          echo "  - cd infra && pulumi stack select production && pulumi up --yes"
+          echo "  - invalidate CloudFront: aws cloudfront create-invalidation ..."
