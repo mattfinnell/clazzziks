@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:3.12-bullseye
+FROM mcr.microsoft.com/devcontainers/python:3.13-bullseye
 
 RUN rm -f /etc/apt/sources.list.d/yarn.list && \
     apt-get update && apt-get install -y --no-install-recommends \
