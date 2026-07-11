@@ -1,6 +1,10 @@
 # Language-agnostic starter hooks. Add language-specific formatters/linters
 # (black, ruff, prettier, …) per project as needed.
 # The hook is installed automatically by .devcontainer/post-create.sh.
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -17,3 +21,47 @@ repos:
       - id: detect-private-key      # guard against committing SSH/GPG keys
       - id: mixed-line-ending       # normalize CRLF/LF (matters on WSL2/cross-OS)
       - id: check-case-conflict     # catch names that clash on case-insensitive FSes
+
+  # Secret scanning — guards against committing Firebase service account JSON,
+  # DB URLs, or other credentials that live in this repo's .env files.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        stages: [pre-push]
+
+  # Python static security analysis (SQL injection, hardcoded secrets, etc.)
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        name: bandit (backend)
+        args: [-c, backend/pyproject.toml]
+        files: ^backend/clazzziks/.*\.py$
+
+  # Per-project test suites — catch breakage before it's pushed, not in CI.
+  - repo: local
+    hooks:
+      - id: pytest-backend
+        name: pytest (backend)
+        entry: bash -c 'cd backend && uv sync --extra dev && uv run pytest -m "not e2e"'
+        language: system
+        files: ^backend/.*\.py$|^backend/pyproject\.toml$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: build-frontend
+        name: tsc + vite build (frontend)
+        entry: bash -c 'cd frontend && pnpm install --frozen-lockfile && pnpm build'
+        language: system
+        files: ^frontend/(src|index\.html)/.*$|^frontend/(package\.json|pnpm-lock\.yaml|tsconfig.*\.json|vite\.config\.ts)$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: typecheck-infra
+        name: tsc --noEmit (infra)
+        entry: bash -c 'cd infra && npm ci && npx tsc --noEmit'
+        language: system
+        files: ^infra/.*\.ts$|^infra/(package(-lock)?\.json|tsconfig\.json)$
+        pass_filenames: false
+        stages: [pre-push]
