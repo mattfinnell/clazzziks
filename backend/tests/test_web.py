@@ -88,6 +88,28 @@ def test_download_single_returns_file_with_headers(client, tmp_path, monkeypatch
     assert resp.content == b"audio-bytes"
 
 
+def test_download_single_non_latin1_warning_does_not_500(client, tmp_path, monkeypatch):
+    # A warning built from a title with typographic punctuation (an en-dash, the
+    # exact U+2013 from the field report) is not latin-1 encodable. Starlette
+    # encodes header values as latin-1, so an unsanitized warning header used to
+    # 500 the whole request even though the file downloaded fine.
+    audio = _make_file(tmp_path, "Song [id].mp3")
+
+    def fake_download_audio(_url, **_kwargs):
+        return DownloadResult(
+            path=audio, title="Deadmau5 – Strobe", source="youtube",
+            fmt=AudioFormat.MP3, warnings=["Deadmau5 – Strobe: low bitrate"],
+        )
+
+    monkeypatch.setattr("clazzziks.api.download_audio", fake_download_audio)
+
+    resp = client.post("/api/download", data={"links": "https://youtu.be/abc"})
+    assert resp.status_code == 200
+    assert resp.content == b"audio-bytes"
+    # The en-dash is transliterated to ASCII so the header still reads sensibly.
+    assert resp.headers["x-clazzziks-warnings"] == "Deadmau5 - Strobe: low bitrate"
+
+
 def test_download_single_unavailable_is_422(client, monkeypatch):
     def boom(url, *, fmt, outdir, bitrate):
         raise DownloadUnavailableError("DRM protected")
@@ -133,6 +155,33 @@ def test_download_bundle_returns_zip_with_failure_warnings(client, tmp_path, mon
     assert "clazzziks_bundle.zip" in resp.headers["content-disposition"]
     warnings = resp.headers["x-clazzziks-warnings"]
     assert "Track A: low bitrate" in warnings
+    assert "failed: https://youtu.be/bad" in warnings
+
+
+def test_download_bundle_non_latin1_warning_does_not_500(client, tmp_path, monkeypatch):
+    # Same latin-1 hazard on the batch path: a warning drawn from a track title
+    # with an en-dash must not sink a bundle whose files already downloaded.
+    archive = _make_file(tmp_path, "clazzziks_bundle.zip", b"PK\x03\x04zip")
+
+    def fake_bundle(_urls, **_kwargs):
+        return BundleResult(
+            path=archive,
+            warnings=["Motörhead – Ace of Spades: low bitrate"],
+            failures=[("https://youtu.be/bad", "unavailable")],
+        )
+
+    monkeypatch.setattr("clazzziks.api.download_bundle", fake_bundle)
+
+    resp = client.post(
+        "/api/download",
+        data={"links": "https://youtu.be/a\nhttps://youtu.be/bad"},
+    )
+    assert resp.status_code == 200
+    assert mimetype(resp) == "application/zip"
+    warnings = resp.headers["x-clazzziks-warnings"]
+    # Header text is flattened to ASCII (umlaut -> base letter, en-dash -> "-")
+    # so every client decodes it identically.
+    assert "Motorhead - Ace of Spades: low bitrate" in warnings
     assert "failed: https://youtu.be/bad" in warnings
 
 

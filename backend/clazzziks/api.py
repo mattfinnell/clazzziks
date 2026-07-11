@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import time
+import unicodedata
 import uuid
 from pathlib import Path
 
@@ -362,13 +363,10 @@ def _serve_single(
     )
     db.log_download(user.uid, user.email, url)
 
-    headers = {}
-    if result.warnings:
-        headers["X-Clazzziks-Warnings"] = " | ".join(result.warnings)
     return FileResponse(
         result.path,
         filename=result.path.name,
-        headers=headers,
+        headers=_warnings_header(result.warnings),
     )
 
 
@@ -387,14 +385,11 @@ def _serve_bundle(
         db.log_download(user.uid, user.email, item.url)
 
     notes = list(result.warnings) + [f"failed: {u}" for u, _ in result.failures]
-    headers = {}
-    if notes:
-        headers["X-Clazzziks-Warnings"] = " | ".join(notes)
     return FileResponse(
         result.path,
         filename=result.path.name,
         media_type="application/zip",
-        headers=headers,
+        headers=_warnings_header(notes),
     )
 
 
@@ -443,6 +438,33 @@ def _parse_rate_limit(value) -> tuple[int | None, str | None]:
     if limit <= 0:
         return None, "rate_limit must be a positive integer or unlimited."
     return limit, None
+
+
+# Common typographic characters that aren't latin-1 encodable, mapped to ASCII
+# so the sanitized header stays readable (an en-dash in "Artist – Title" is the
+# usual offender). Anything not covered here is transliterated or dropped below.
+_HEADER_PUNCT_MAP = str.maketrans({
+    "‐": "-", "‑": "-", "‒": "-", "–": "-",  # hyphen/dashes
+    "—": "-", "―": "-",
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",  # single quotes
+    "“": '"', "”": '"', "„": '"', "‟": '"',  # double quotes
+    "…": "...",                                             # ellipsis
+    "•": "*",                                               # bullet
+})
+
+
+def _safe_header_value(value: str) -> str:
+    """Flatten a string into an ASCII-safe HTTP header value."""
+    value = value.translate(_HEADER_PUNCT_MAP)
+    decomposed = unicodedata.normalize("NFKD", value)
+    return decomposed.encode("ascii", "ignore").decode("ascii")
+
+
+def _warnings_header(notes: list[str]) -> dict[str, str]:
+    """The optional ``X-Clazzziks-Warnings`` header, sanitized for transport."""
+    if not notes:
+        return {}
+    return {"X-Clazzziks-Warnings": _safe_header_value(" | ".join(notes))}
 
 
 def _error(message: str, status: int):
