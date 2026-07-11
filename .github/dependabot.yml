@@ -1,0 +1,74 @@
+version: 2
+
+updates:
+  # ── Python backend ───────────────────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+    labels: ["dependencies", "backend"]
+    commit-message:
+      prefix: "chore(backend)"
+
+  # ── React frontend (pnpm) ────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      frontend-dependencies:
+        patterns: ["*"]
+    labels: ["dependencies", "frontend"]
+    commit-message:
+      prefix: "chore(frontend)"
+
+  # ── Pulumi infra (TypeScript) ────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      infra-dependencies:
+        patterns: ["*"]
+    labels: ["dependencies", "infra"]
+    commit-message:
+      prefix: "chore(infra)"
+
+  # ── Docker base image (repo-root Dockerfile) ─────────────────────────────
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(docker)"
+
+  # ── Devcontainer image ───────────────────────────────────────────────────
+  - package-ecosystem: "docker"
+    directory: "/.devcontainer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "devcontainer", "docker"]
+    commit-message:
+      prefix: "chore(devcontainer)"
+
+  # ── GitHub Actions (pin-bumping for .github/workflows/*.yml) ─────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions-dependencies:
+        patterns: ["*"]
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"
