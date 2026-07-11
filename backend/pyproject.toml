@@ -12,22 +12,19 @@ dependencies = [
     "yt-dlp>=2026.6.9",
     "fastapi>=0.110",
     "uvicorn>=0.29",
-    "python-multipart>=0.0.9",
-    "jinja2>=3.1",
     "requests>=2.31",
     "rich>=13.0",
     "firebase-admin>=6.5",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.1",
+    "strawberry-graphql[fastapi]>=0.235",
 ]
 
 [project.optional-dependencies]
-# Tooling for running the test suite: httpx powers FastAPI's TestClient and
-# jsonschema validates responses against the shared openapi.json contract.
+# Tooling for running the test suite: httpx powers FastAPI's TestClient.
 dev = [
     "pytest>=8.0",
     "httpx>=0.27",
-    "jsonschema>=4.0",
     # Lets `uv run api` auto-load backend/.env in development (api._load_dotenv).
     "python-dotenv>=1.0",
 ]
@@ -41,7 +38,7 @@ clazzziks-db = "clazzziks.admin:main"
 include = ["clazzziks*"]
 
 [tool.setuptools.package-data]
-clazzziks = ["templates/*.html", "openapi.json"]
+clazzziks = ["schema.graphql"]
 
 [tool.pytest.ini_options]
 # Put the backend root on sys.path so `import clazzziks` resolves regardless of

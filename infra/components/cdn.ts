@@ -24,6 +24,36 @@ export function createCdn(args: CdnArgs): Cdn {
     description: `clazzziks-${stack} S3 OAC`,
   });
 
+  // HTTPS-everywhere (edge enforcement): every viewer response carries HSTS so
+  // browsers refuse to talk to the site over plain HTTP after the first visit.
+  // Viewers are already redirected HTTP -> HTTPS by each behavior below; this
+  // makes that stick. The CloudFront <-> origin hop stays HTTP by design.
+  const securityHeaders = new aws.cloudfront.ResponseHeadersPolicy('security-headers', {
+    securityHeadersConfig: {
+      strictTransportSecurity: {
+        accessControlMaxAgeSec: 31536000, // 1 year
+        includeSubdomains: true,
+        preload: true,
+        override: true,
+      },
+    },
+  });
+
+  // Shared config for the two API behaviors (GraphQL + the /files download
+  // stream). Both proxy to the EC2 origin, force HTTPS to viewers, and are
+  // uncacheable (POST GraphQL + unique per-download tokens).
+  const apiBehavior = {
+    targetOriginId: 'api',
+    viewerProtocolPolicy: 'redirect-to-https' as const,
+    allowedMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
+    cachedMethods: ['GET', 'HEAD'],
+    forwardedValues: { queryString: true, cookies: { forward: 'all' as const }, headers: ['*'] },
+    responseHeadersPolicyId: securityHeaders.id,
+    minTtl: 0,
+    defaultTtl: 0,
+    maxTtl: 0,
+  };
+
   const distribution = new aws.cloudfront.Distribution('distribution', {
     comment: `clazzziks-${stack}`,
     enabled: true,
@@ -56,20 +86,16 @@ export function createCdn(args: CdnArgs): Cdn {
       allowedMethods: ['GET', 'HEAD'],
       cachedMethods: ['GET', 'HEAD'],
       forwardedValues: { queryString: false, cookies: { forward: 'none' } },
+      responseHeadersPolicyId: securityHeaders.id,
       compress: true,
       minTtl: 0,
     },
-    orderedCacheBehaviors: [{
-      pathPattern: '/api/*',
-      targetOriginId: 'api',
-      viewerProtocolPolicy: 'redirect-to-https',
-      allowedMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
-      cachedMethods: ['GET', 'HEAD'],
-      forwardedValues: { queryString: true, cookies: { forward: 'all' }, headers: ['*'] },
-      minTtl: 0,
-      defaultTtl: 0,
-      maxTtl: 0,
-    }],
+    // The API is GraphQL (/graphql) plus the binary download stream (/files/*);
+    // both proxy to the EC2 origin. (Was a single /api/* behavior pre-GraphQL.)
+    orderedCacheBehaviors: [
+      { pathPattern: '/graphql', ...apiBehavior },
+      { pathPattern: '/files/*', ...apiBehavior },
+    ],
     customErrorResponses: [
       { errorCode: 403, responseCode: 200, responsePagePath: '/index.html' },
       { errorCode: 404, responseCode: 200, responsePagePath: '/index.html' },
