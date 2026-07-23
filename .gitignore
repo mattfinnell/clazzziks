@@ -42,6 +42,7 @@ backend/tracks/*
 **/node_modules/
 **/frontend/dist/
 **/frontend/.vite/
+**/frontend/*.tsbuildinfo
 **/npm-debug.log*
 **/yarn-error.log*
 **/*.local
