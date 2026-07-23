@@ -12,15 +12,18 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, ClassVar
 
+import requests
 import yt_dlp
 from yt_dlp.utils import DownloadError as _YtdlpDownloadError
 
+from .. import tagging
 from ..formats import (
     AudioFormat,
     DEFAULT_MP3_BITRATE,
@@ -28,9 +31,58 @@ from ..formats import (
     source_bitrate_warning,
 )
 from ..logging_config import log_event
+from ..metadata import build_metadata
 from ..sources import Source, detect_source
 
 logger = logging.getLogger(__name__)
+
+_THUMBNAIL_TIMEOUT_SECONDS = 5
+
+_ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_MAX_FILENAME_STEM_LENGTH = 200
+
+# Guards the check-then-rename below so two tracks in the same parallel batch
+# (jobs.py runs up to 4 at once) that clean to the same name can't race.
+_rename_lock = threading.Lock()
+
+
+def fetch_thumbnail(url: str) -> bytes:
+    """Fetch artwork bytes for a thumbnail URL. Raises on any failure."""
+    response = requests.get(
+        url, timeout=_THUMBNAIL_TIMEOUT_SECONDS, headers={"User-Agent": "clazzziks/0.1"}
+    )
+    response.raise_for_status()
+    return response.content
+
+
+def _sanitize_filename(name: str) -> str:
+    name = _ILLEGAL_FILENAME_CHARS.sub("", name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    name = name or "audio"
+    # Truncate by *bytes*, not characters — most filesystems cap a path
+    # component at 255 bytes, and multi-byte titles (CJK, emoji, ...) can
+    # blow past that well before hitting a 200-character limit.
+    encoded = name.encode("utf-8")[:_MAX_FILENAME_STEM_LENGTH]
+    return encoded.decode("utf-8", errors="ignore")
+
+
+def _clean_output_name(title: str, artist: str | None, fmt: AudioFormat) -> str:
+    label = f"{artist} - {title}" if artist else title
+    return f"{_sanitize_filename(label)}.{fmt.value}"
+
+
+def _dedupe_path(candidate: Path, current: Path) -> Path:
+    """``candidate``, or a "`` (2)``"-suffixed variant if something else at that
+    path already exists (renaming ``current`` onto itself is always fine)."""
+    if candidate == current or not candidate.exists():
+        return candidate
+    stem, suffix = candidate.stem, candidate.suffix
+    n = 2
+    while True:
+        alt = candidate.with_name(f"{stem} ({n}){suffix}")
+        if alt == current or not alt.exists():
+            return alt
+        n += 1
 
 
 class DownloadUnavailableError(RuntimeError):
@@ -172,9 +224,41 @@ class Downloader(ABC):
 
         path = self._resolve_output_path(ydl, info, fmt, outdir)
 
+        meta = build_metadata(info, fallback_title=info.get("title", "audio"))
+        warnings.extend(meta.warnings)
+
+        artwork: bytes | None = None
+        if meta.thumbnail_url:
+            try:
+                artwork = fetch_thumbnail(meta.thumbnail_url)
+            except Exception as exc:  # noqa: BLE001 - a bad thumbnail must not fail the download
+                warnings.append(f"Could not fetch artwork: {exc}")
+
+        try:
+            warnings.extend(tagging.embed_tags(path, fmt, meta, artwork))
+        except Exception as exc:  # noqa: BLE001 - tagging failures must not fail the download
+            warnings.append(f"Could not embed metadata tags: {exc}")
+
+        # yt-dlp's own output template stamps a "[video id]" suffix onto the
+        # filename to guarantee no collisions during download; that stamp has
+        # no place in a Rekordbox-imported library, so swap in a clean name
+        # now that tagging (which didn't need it) is done. A rename failure
+        # (e.g. a filesystem path-length limit) must not discard an otherwise
+        # fully downloaded and tagged track — worst case, it keeps the
+        # id-stamped name.
+        try:
+            clean_name = _clean_output_name(meta.title, meta.artist, fmt)
+            with _rename_lock:
+                clean_path = _dedupe_path(outdir / clean_name, path)
+                if clean_path != path:
+                    path.rename(clean_path)
+                    path = clean_path
+        except OSError as exc:
+            warnings.append(f"Could not clean up the output filename: {exc}")
+
         result = DownloadResult(
             path=path,
-            title=info.get("title", "audio"),
+            title=meta.title,
             source=self.source.value,
             fmt=fmt,
             warnings=warnings,
