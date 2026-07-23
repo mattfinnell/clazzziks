@@ -1,4 +1,4 @@
-# Python
+# ── Python ───────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,7 +22,22 @@ ENV/
 .coverage.*
 htmlcov/
 
-# Downloaded audio output (artifacts, not source)
+# ── Node / frontend / infra (TypeScript) ────────────────────────────
+node_modules/
+.pnpm-store/
+.vite/
+*.tsbuildinfo
+coverage/
+.eslintcache
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.local
+
+# ── Pulumi local state (cloud state lives in the configured backend) ─
+.pulumi/
+
+# ── Downloaded audio output (artifacts, not source) ─────────────────
 *.mp3
 *.wav
 *.flac
@@ -37,24 +52,12 @@ downloads/
 backend/tracks/*
 !backend/tracks/.gitkeep
 
-# Node / frontend
-.pnpm-store/
-**/node_modules/
-**/frontend/dist/
-**/frontend/.vite/
-**/frontend/*.tsbuildinfo
-**/npm-debug.log*
-**/yarn-error.log*
-**/*.local
+# ── SQLite store (cache / VIP group / rate-limit log) — local state ─
+*.db
+*.db-wal
+*.db-shm
 
-# Editor / OS
-.vscode/
-.idea/
-*.swp
-.DS_Store
-Thumbs.db
-
-# Env / secrets
+# ── Env / secrets ────────────────────────────────────────────────────
 .env
 .env.*
 !.env.example
@@ -64,16 +67,25 @@ Thumbs.db
 firebase-service-account*.json
 *serviceAccount*.json
 
-# SQLite store (cache / VIP group / rate-limit log) — local state, not source
-*.db
-*.db-wal
-*.db-shm
+# Cloud credentials (never commit)
+.creds
 
-# Local tooling / machine-specific
+# ── Editor / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.orig
+*.rej
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────────
+*.log
+
+# ── Local tooling / machine-specific (this devcontainer) ─────────────
 .claude/
 .config-host/
 .ssh-localhost/
-.notes
 
-# Cloud Credentials (never commit)
-.creds
+# ── Custom ───────────────────────────────────────────────────────────
+.notes
