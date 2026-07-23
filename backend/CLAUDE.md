@@ -28,15 +28,28 @@ The YouTube and SoundCloud downloaders show the direct-download pattern. YouTube
 
 ## API surface & contract
 
-The API is **GraphQL** (Strawberry) at `POST /graphql` (GraphiQL on `GET /graphql`).
-The code-first schema in `clazzziks/schema.py` is the **single source of truth**; its
-emitted SDL, `clazzziks/schema.graphql`, is the committed contract shared with the
-frontend. `auto_camel_case` is **disabled**, so field names stay snake_case
-(`is_vip`, `rate_limit`, …) to match what the React client builds against.
+The API is **GraphQL** (Strawberry) at `POST /graphql` (GraphiQL on `GET /graphql`,
+subscriptions over WebSocket at the same path). The code-first schema in
+`clazzziks/schema.py` is the **single source of truth**; its emitted SDL,
+`clazzziks/schema.graphql`, is the committed contract shared with the frontend.
+`auto_camel_case` is **disabled**, so field names stay snake_case (`is_vip`,
+`rate_limit`, `job_id`, …) to match what the React client builds against.
 
-Binary payloads can't travel over GraphQL, so the `download` mutation returns a
-short-lived **token** and the produced MP3/ZIP bytes stream from the one
-non-GraphQL route, `GET /files/{token}` (in `api.py`, auth-gated).
+**Downloads are jobs.** The `download` mutation validates input, starts a
+`DownloadJob` (`clazzziks/jobs.py`), and returns `{ job_id, count }`; the
+`progress(job_id)` subscription then streams `TrackProgress` events (up to 4 tracks
+in parallel) ending with a terminal `DownloadComplete`. Binary can't travel over
+GraphQL, so that terminal event carries a short-lived **token** and the produced
+MP3/ZIP bytes stream from the one non-GraphQL route, `GET /files/{token}` (in
+`api.py`, auth-gated). The job runs on a **daemon thread** (not an asyncio task) so
+it's independent of the request that started it; per-track events hop from the
+worker threads back onto the event loop (`call_soon_threadsafe`) to feed each
+subscriber. Every event is retained and replayed to late/reconnecting subscribers.
+The subscription is **ungated** — a `job_id` is an unguessable handle only an
+authorized caller (who passed the mutation's `IsUser` check) can obtain.
+
+WebSocket support needs `websockets` (a dependency) for uvicorn; the schema is
+built with a `Subscription` type so Strawberry's `GraphQLRouter` serves it.
 
 If you add or change an operation:
 
@@ -125,7 +138,7 @@ database (`CLAZZZIKS_TEST_DATABASE_URL`, auto-created if missing). See
 
 ## Test patterns
 
-- **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_units.py`): use `monkeypatch` to mock `clazzziks.schema.download_audio` / `download_bundle`. Drive GraphQL via the `tests/gql.py` helpers (`gql_data`, `gql_error`, `do_download`). No network. These run by default.
+- **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_jobs.py`, `test_units.py`): use `monkeypatch` to mock `clazzziks.jobs.download_audio` (the seam the job runner calls). Drive queries/mutations via the `tests/gql.py` HTTP helpers (`gql_data`, `gql_error`); the download flow (`do_download`, `run_download`, `download_error`) starts a job and drains its `progress` subscription **at the schema level** (`schema.subscribe`) — deterministic and transport-independent — then fetches `/files` over HTTP. No network. These run by default.
 - **Downloader e2e tests** (`test_e2e.py`): hit real URLs through the downloader layer directly. Mark with `@pytest.mark.e2e`. Use `tmp_path` as `outdir` — never write into `tracks/` from tests.
 - **API e2e tests** (`test_api_e2e.py`): hit real URLs through the full HTTP API stack (no mocking). Also marked `@pytest.mark.e2e`. Uses a `module`-scoped `live_client` fixture with a 300 s timeout to accommodate slow downloads.
 

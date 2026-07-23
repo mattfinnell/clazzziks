@@ -21,7 +21,7 @@ _AUTH = {"Authorization": "Bearer t"}
 
 
 def _fake_download_factory(tmp_path: Path, counter: list[int]):
-    def fake_download_audio(url, *, fmt, outdir, bitrate):
+    def fake_download_audio(url, *, fmt, outdir, bitrate, progress_hook=None):
         counter.append(1)
         audio = tmp_path / f"track-{len(counter)}.{fmt.value}"
         audio.write_bytes(b"audio-bytes")
@@ -63,11 +63,11 @@ SYNC_USERS = "mutation { sync_users { users { email } last_synced_at } }"
 def test_repeat_download_is_served_from_cache(client, tmp_path, monkeypatch):
     calls: list[int] = []
     monkeypatch.setattr(
-        "clazzziks.schema.download_audio", _fake_download_factory(tmp_path, calls)
+        "clazzziks.jobs.download_audio", _fake_download_factory(tmp_path, calls)
     )
 
-    first, _ = do_download(client, "https://youtu.be/abc")
-    second, _ = do_download(client, "https://youtu.be/abc")
+    first, _c1, _e1 = do_download(client, "https://youtu.be/abc")
+    second, _c2, _e2 = do_download(client, "https://youtu.be/abc")
 
     assert first.status_code == second.status_code == 200
     assert first.content == second.content == b"audio-bytes"
@@ -78,7 +78,7 @@ def test_repeat_download_is_served_from_cache(client, tmp_path, monkeypatch):
 def test_distinct_sources_are_cached_separately(client, tmp_path, monkeypatch):
     calls: list[int] = []
     monkeypatch.setattr(
-        "clazzziks.schema.download_audio", _fake_download_factory(tmp_path, calls)
+        "clazzziks.jobs.download_audio", _fake_download_factory(tmp_path, calls)
     )
     do_download(client, "https://youtu.be/abc")
     do_download(client, "https://youtu.be/xyz")
@@ -91,28 +91,28 @@ def test_distinct_sources_are_cached_separately(client, tmp_path, monkeypatch):
 def test_non_vip_is_rate_limited(client, configured, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "2")
     _signed_in_as(monkeypatch, uid="u1", email="user@example.com")
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_download_factory(tmp_path, []))
 
     assert do_download(client, "https://youtu.be/abc", _AUTH)[0].status_code == 200
     assert do_download(client, "https://youtu.be/abc", _AUTH)[0].status_code == 200
-    assert "Rate limit reached" in download_error(client, "https://youtu.be/abc", _AUTH)
+    assert "Rate limit reached" in download_error("https://youtu.be/abc", _AUTH)
 
 
 def test_vip_with_custom_limit_is_capped(client, configured, tmp_path, monkeypatch):
     # A VIP can be given a finite per-user limit by an admin.
     db.add_vip("vip@example.com", rate_limit=1)
     _signed_in_as(monkeypatch, uid="v1", email="vip@example.com")
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_download_factory(tmp_path, []))
 
     assert do_download(client, "https://youtu.be/abc", _AUTH)[0].status_code == 200
-    assert "Rate limit reached" in download_error(client, "https://youtu.be/abc", _AUTH)
+    assert "Rate limit reached" in download_error("https://youtu.be/abc", _AUTH)
 
 
 def test_vip_bypasses_rate_limit(client, configured, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "1")
     db.add_vip("vip@example.com")
     _signed_in_as(monkeypatch, uid="v1", email="vip@example.com")
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_download_factory(tmp_path, []))
 
     for _ in range(3):
         assert do_download(client, "https://youtu.be/abc", _AUTH)[0].status_code == 200
@@ -120,7 +120,7 @@ def test_vip_bypasses_rate_limit(client, configured, tmp_path, monkeypatch):
 
 def test_no_rate_limit_in_open_mode(client, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAZZZIKS_RATE_LIMIT", "1")
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_download_factory(tmp_path, []))
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_download_factory(tmp_path, []))
     # Auth not configured -> anonymous, never rate limited (dev stays frictionless).
     assert do_download(client, "https://youtu.be/abc")[0].status_code == 200
     assert do_download(client, "https://youtu.be/abc")[0].status_code == 200

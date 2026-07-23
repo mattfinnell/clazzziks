@@ -4,11 +4,16 @@ type Config {
   bundle_format: String!
 }
 
-type DownloadResult {
-  token: String!
-  filename: String!
+type DownloadComplete {
+  token: String
+  filename: String
   warnings: [String!]!
   failures: [String!]!
+}
+
+type DownloadStart {
+  job_id: String!
+  count: Int!
 }
 
 type Me {
@@ -24,14 +29,30 @@ type Mutation {
   update_vip(email: String!, note: String, is_admin: Boolean, rate_limit: Int): [Vip!]!
   remove_vip(email: String!): [Vip!]!
   sync_users: UserList!
-  download(links: String!): DownloadResult!
+  download(links: String!): DownloadStart!
 }
+
+union ProgressEvent = TrackProgress | DownloadComplete
 
 type Query {
   config: Config!
   me: Me!
   vips: [Vip!]!
   users: UserList!
+}
+
+type Subscription {
+  progress(job_id: String!): ProgressEvent!
+}
+
+type TrackProgress {
+  url: String!
+  title: String
+  index: Int!
+  total: Int!
+  state: String!
+  pct: Float
+  error: String
 }
 
 type User {

@@ -16,7 +16,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import Callable, ClassVar
 
 import yt_dlp
 from yt_dlp.utils import DownloadError as _YtdlpDownloadError
@@ -119,11 +119,16 @@ class Downloader(ABC):
         fmt: AudioFormat | str = AudioFormat.MP3,
         outdir: str | os.PathLike = ".",
         bitrate: int = DEFAULT_MP3_BITRATE,
+        progress_hook: "Callable[[dict], None] | None" = None,
     ) -> DownloadResult:
         """Download the audio at ``url`` and transcode it to ``fmt``.
 
         Returns a :class:`DownloadResult` pointing at the written file plus any
         quality warnings (e.g. sub-320kbps MP3).
+
+        ``progress_hook``, if given, is registered as both a yt-dlp
+        ``progress_hooks`` (download %) and ``postprocessor_hooks`` (ffmpeg
+        transcode) callback, letting callers stream live per-track progress.
         """
         fmt = fmt if isinstance(fmt, AudioFormat) else AudioFormat.parse(fmt)
         outdir = Path(outdir)
@@ -142,7 +147,7 @@ class Downloader(ABC):
         target = self.resolve(url)
 
         try:
-            with yt_dlp.YoutubeDL(self._ydl_options(fmt, outdir, bitrate)) as ydl:
+            with yt_dlp.YoutubeDL(self._ydl_options(fmt, outdir, bitrate, progress_hook)) as ydl:
                 info = ydl.extract_info(target, download=True)
             info = self._select_result(info, url)
         except _YtdlpDownloadError as exc:
@@ -185,7 +190,13 @@ class Downloader(ABC):
 
     # -- shared internals ----------------------------------------------------
 
-    def _ydl_options(self, fmt: AudioFormat, outdir: Path, bitrate: int) -> dict:
+    def _ydl_options(
+        self,
+        fmt: AudioFormat,
+        outdir: Path,
+        bitrate: int,
+        progress_hook: "Callable[[dict], None] | None" = None,
+    ) -> dict:
         postprocessor = {
             "key": "FFmpegExtractAudio",
             "preferredcodec": fmt.value,
@@ -194,18 +205,23 @@ class Downloader(ABC):
             # yt-dlp interprets preferredquality as a kbps target for lossy codecs.
             postprocessor["preferredquality"] = str(bitrate)
 
-        return {
+        opts = {
             "format": "bestaudio/best",
             "outtmpl": str(outdir / "%(title)s [%(id)s].%(ext)s"),
             "postprocessors": [postprocessor],
             "logger": _SilentLogger(),
             "quiet": True,
             "no_warnings": True,
+            # noprogress only silences yt-dlp's console line; our hooks still fire.
             "noprogress": True,
             "ignoreerrors": False,
             "restrictfilenames": False,
             "noplaylist": True,
         }
+        if progress_hook is not None:
+            opts["progress_hooks"] = [progress_hook]
+            opts["postprocessor_hooks"] = [progress_hook]
+        return opts
 
     def _select_result(self, info: dict, url: str) -> dict:
         """Pick the info dict to actually use from yt-dlp's output.

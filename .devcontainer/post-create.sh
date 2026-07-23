@@ -7,6 +7,53 @@ echo "==> Installing tooling"
 npm install -g @anthropic-ai/claude-code || true
 corepack enable pnpm || npm install -g pnpm || true
 
+# The CLI self-checks for a native build at ~/.local/bin/claude — and the host-imported
+# ~/.claude.json records that path — so with only the npm global install every launch warns
+# "claude command at ~/.local/bin/claude missing or broken". Lay down the native build to
+# match. Non-fatal if offline.
+if command -v claude >/dev/null 2>&1; then
+  claude install stable >/dev/null 2>&1 \
+    && echo "    claude native build installed at ~/.local/bin/claude" \
+    || echo "    claude install (native build) failed — launch may warn until 'claude install' is run"
+fi
+
+# --- Claude account config -------------------------------------------------
+# The CLI keeps account/onboarding state in ~/.claude.json — a FILE beside the
+# ~/.claude dir, not inside it — so the ~/.claude dir mount (devcontainer.json)
+# doesn't carry it. ~/.claude.json-host is a read-only bind-mount of the host
+# file. Copy it into place (a writable copy — a direct file bind-mount breaks
+# the CLI's atomic temp+rename writes) so the container shares the host's
+# login. Without this the container gets a stub with no oauthAccount and
+# interactive login fails with an "OAuth error" even though the shared
+# credentials are valid. Only copy over a missing/stub config so we never
+# clobber a good one on re-run.
+if [ -s "$HOME/.claude.json-host" ] && [ "$(stat -c%s "$HOME/.claude.json-host" 2>/dev/null || echo 0)" -gt 100 ]; then
+  echo "==> Importing host Claude config"
+  cur_size=$(stat -c%s "$HOME/.claude.json" 2>/dev/null || echo 0)
+  if [ ! -f "$HOME/.claude.json" ] || [ "$cur_size" -lt 1000 ]; then
+    cp "$HOME/.claude.json-host" "$HOME/.claude.json"
+    echo "    host ~/.claude.json imported"
+  else
+    echo "    ~/.claude.json already present — skipping copy"
+  fi
+  # Trust /workspaces/clazzziks so .claude/settings.local.json permission entries
+  # aren't ignored ("this workspace has not been trusted").
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$HOME/.claude.json" <<'PY' || echo "    could not set /workspaces/clazzziks trust flag"
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    cfg = json.load(f)
+cfg.setdefault("projects", {}).setdefault("/workspaces/clazzziks", {})["hasTrustDialogAccepted"] = True
+with open(p, "w") as f:
+    json.dump(cfg, f, indent=2)
+PY
+    echo "    /workspaces/clazzziks marked as trusted"
+  fi
+else
+  echo "==> No host ~/.claude.json mounted — Claude may prompt for login on first run"
+fi
+
 # Pulumi (infrastructure) is provided by the devcontainer feature
 # (ghcr.io/devcontainers-extra/features/pulumi). If it's somehow missing
 # (e.g. a feature-less rebuild), install it via the official script.

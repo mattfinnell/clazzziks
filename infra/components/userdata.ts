@@ -99,6 +99,13 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
+    # WebSocket upgrade support for the GraphQL subscription (/graphql). Maps to
+    # "upgrade" for a WS handshake and "close" for ordinary requests.
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
     server {
         listen 80;
         server_name _;
@@ -106,6 +113,9 @@ http {
             proxy_pass         http://localhost:8000;
             proxy_read_timeout 300s;
             proxy_send_timeout 300s;
+            proxy_http_version 1.1;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        $connection_upgrade;
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;

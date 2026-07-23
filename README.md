@@ -86,32 +86,42 @@ for hosting behind any web server.
 ## GraphQL API
 
 The API is **GraphQL**, served at `POST /graphql` with the GraphiQL explorer on
-`GET /graphql`. Because GraphQL/JSON can't carry binary payloads, the `download`
-mutation returns a short-lived **token** and the produced MP3/ZIP bytes stream from
-the one non-GraphQL route, `GET /files/{token}`.
+`GET /graphql` and **subscriptions over WebSocket** at the same path.
+
+A download runs as a background **job** so the UI can show live per-track progress
+(like docker layers building): the `download` mutation returns a `job_id`, and the
+`progress(job_id)` subscription streams a `TrackProgress` event per track (queued →
+downloading → transcoding → done/failed, up to 4 in parallel), ending with a
+terminal `DownloadComplete`. GraphQL/JSON can't carry binary, so that terminal event
+carries a short-lived **token** and the produced MP3/ZIP bytes stream from the one
+non-GraphQL route, `GET /files/{token}`.
 
 ```
-POST /graphql        -> queries + mutations (see operations below)
+POST /graphql        -> queries + mutations
+WS   /graphql        -> the progress subscription
 GET  /graphql        -> GraphiQL explorer
 GET  /files/{token}  -> stream a produced MP3 / ZIP bundle   [auth-protected]
 GET  /health         -> {"status":"ok"}
 ```
 
-Operations: `config`, `me`, `vips`, `users` (queries) and
-`download`, `add_vip`, `update_vip`, `remove_vip`, `sync_users` (mutations).
+Operations: `config`, `me`, `vips`, `users` (queries); `download`, `add_vip`,
+`update_vip`, `remove_vip`, `sync_users` (mutations); `progress` (subscription).
 The `download` mutation requires a Firebase ID token (`Authorization: Bearer <token>`)
 **when the backend is configured with Firebase credentials**; otherwise it stays
 open. See [Authentication](#authentication).
 
 ```bash
-# 1. Kick off a download -> get a token (+ any quality warnings)
+# 1. Start a job -> job_id
 curl -s localhost:5000/graphql -H 'content-type: application/json' \
-  -d '{"query":"mutation($l:String!){download(links:$l){token filename warnings}}","variables":{"l":"https://youtu.be/<id>"}}'
-# 2. Stream the file
+  -d '{"query":"mutation($l:String!){download(links:$l){job_id count}}","variables":{"l":"https://youtu.be/<id>"}}'
+# 2. Watch progress over WS at ws://localhost:5000/graphql (subscription progress(job_id))
+#    -> the terminal DownloadComplete event carries the file token
+# 3. Stream the file
 curl -OJ "localhost:5000/files/<token>"
 ```
 
-Quality warnings are returned on the `download` mutation's `warnings` field.
+Quality warnings and per-track failures are returned on the terminal
+`DownloadComplete` event (`warnings` / `failures`).
 
 ### Shared API contract
 

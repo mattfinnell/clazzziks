@@ -15,7 +15,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // The GraphQL API and the /files download stream both live on the backend.
-      '/graphql': { target: API_TARGET, changeOrigin: true },
+      // ws:true proxies the subscription's WebSocket upgrade to /graphql too.
+      '/graphql': { target: API_TARGET, changeOrigin: true, ws: true },
       '/files': { target: API_TARGET, changeOrigin: true },
     },
   },

@@ -137,6 +137,72 @@
     &--idle { color: transparent; }
   }
 
+  // Per-track download readout (docker-build-style).
+  &__tracks {
+    margin: 18px 0 0;
+    padding: 12px;
+    list-style: none;
+    background: #010701;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  &__track {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) 90px 96px;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 0;
+    color: var(--green-dim);
+
+    &--done { color: var(--green); }
+    &--failed { color: var(--red); text-shadow: 0 0 6px rgba(255, 95, 86, 0.4); }
+  }
+
+  &__track-id {
+    color: var(--green-faint);
+    text-align: right;
+  }
+
+  &__track-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  // Slim progress bar; fills left-to-right as the track downloads.
+  &__track-bar {
+    height: 8px;
+    background: rgba(51, 255, 102, 0.08);
+    border: 1px solid var(--border);
+
+    i {
+      display: block;
+      height: 100%;
+      background: var(--green-dim);
+      transition: width 0.2s linear;
+    }
+
+    .downloader__track--done & i { background: var(--green); }
+    .downloader__track--failed & i { background: var(--red); }
+  }
+
+  &__track-status {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @media (max-width: 600px) {
+    &__track {
+      grid-template-columns: 18px minmax(0, 1fr) 64px;
+    }
+    &__track-bar { display: none; }
+  }
+
   // Backend status indicator in the title bar.
   &__status {
     display: inline-flex;

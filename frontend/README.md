@@ -1,8 +1,10 @@
 # CLAZZZIKS frontend
 
 React + Vite web utility for the CLAZZZIKS audio downloader. Built with
-React, TypeScript and SCSS. Talks to the Python backend over **GraphQL** (`/graphql`)
-plus the `/files/:token` download stream (via `graphql-request` + `@tanstack/react-query`).
+React, TypeScript and SCSS. Talks to the Python backend over **GraphQL** (`/graphql`):
+queries/mutations via `graphql-request`, the live `progress` **subscription** over
+WebSocket via `graphql-ws`, and the `/files/:token` download stream — all wired into
+`@tanstack/react-query`.
 
 ```bash
 pnpm install
@@ -29,11 +31,13 @@ VITE_API_BASE=http://<elastic-ip> pnpm build
 ## Source files
 
 - `src/api.ts` — GraphQL backend client (`fetchConfig`, `fetchMe`, `listVips`,
-  `listUsers`, `syncUsers`, `addVip`, `updateVip`, `removeVip`, `requestDownload`,
-  `saveBlob`). `requestDownload` runs the `download` mutation, then streams the file
-  from `/files/:token` and triggers a browser file-save.
+  `listUsers`, `syncUsers`, `addVip`, `updateVip`, `removeVip`, `startDownload`,
+  `saveBlob`). `startDownload` runs the `download` mutation, subscribes to
+  `progress(job_id)` over WebSocket (calling back on every per-track state change),
+  then streams the produced file from `/files/:token` and triggers a browser file-save.
 - `src/pages/Downloader.tsx` — the download UI: link textarea, single-vs-bundle
-  detection, backend health indicator, warning display.
+  detection, backend health indicator, and a docker-build-style per-track progress
+  readout (queued → downloading % → transcoding → done/failed) fed by the subscription.
 
 ## Production build (for AWS deploy)
 

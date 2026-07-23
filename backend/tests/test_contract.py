@@ -37,8 +37,15 @@ def test_contract_declares_core_operations():
     for op in (
         "config", "me", "vips", "users",
         "download", "add_vip", "update_vip", "remove_vip", "sync_users",
+        "progress",  # the per-track progress subscription
     ):
         assert op in sdl, f"operation {op!r} missing from the contract SDL"
+
+
+def test_contract_declares_progress_subscription():
+    sdl = CONTRACT_PATH.read_text(encoding="utf-8")
+    assert "type Subscription" in sdl
+    assert "union ProgressEvent = TrackProgress | DownloadComplete" in sdl
 
 
 def test_config_reports_mp3_only(client):

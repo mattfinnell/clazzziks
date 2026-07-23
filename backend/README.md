@@ -131,9 +131,10 @@ from `backend/`.
 
 ## API
 
-The API is **GraphQL** at `POST /graphql` (GraphiQL on `GET /graphql`). Plus two
-plain HTTP routes: `GET /health` and the `GET /files/{token}` download stream
-(auth-gated; `token` comes from the `download` mutation).
+The API is **GraphQL** at `POST /graphql` (GraphiQL on `GET /graphql`, subscriptions
+over WebSocket at the same path). Plus two plain HTTP routes: `GET /health` and the
+`GET /files/{token}` download stream (auth-gated; `token` comes from the terminal
+`DownloadComplete` progress event).
 
 **Queries**
 
@@ -148,15 +149,23 @@ plain HTTP routes: `GET /health` and the `GET /files/{token}` download stream
 
 | Operation | Description |
 |---|---|
-| `download(links)` | Download one track or a ZIP bundle → a `{token, filename, warnings, failures}` handle |
+| `download(links)` | Start a background download job → `{job_id, count}` |
 | `add_vip(email, note, is_admin, rate_limit)` | Add/update a VIP (admin only) |
 | `update_vip(email, …)` | Change a VIP's note/role/rate limit (admin only) |
 | `remove_vip(email)` | Remove a VIP (admin only) |
 | `sync_users` | Refresh the Firebase→Postgres user mirror (admin only) |
 
-The contract is the emitted SDL, `clazzziks/schema.graphql` (source of truth:
-`clazzziks/schema.py`). See the Database and Authentication sections of `CLAUDE.md`
-for the cache, VIP group, and rate-limit behaviour behind these operations.
+**Subscription**
+
+| Operation | Description |
+|---|---|
+| `progress(job_id)` | Stream `TrackProgress` events (queued → downloading → transcoding → done/failed, 4 tracks in parallel), ending with `DownloadComplete { token, filename, warnings, failures }` |
+
+The job orchestration lives in `clazzziks/jobs.py` (a daemon-thread `DownloadJob`
+per request, with history replay for reconnecting subscribers). The contract is the
+emitted SDL, `clazzziks/schema.graphql` (source of truth: `clazzziks/schema.py`). See
+the Database and Authentication sections of `CLAUDE.md` for the cache, VIP group, and
+rate-limit behaviour behind these operations.
 
 ## Authentication
 

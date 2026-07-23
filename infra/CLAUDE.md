@@ -117,6 +117,11 @@ resource needs environment-specific values, read them in `config.ts` from
 - **nginx** proxies port 80 → localhost:8000 with 300 s `proxy_read_timeout` and
   `proxy_send_timeout`. The full nginx config is written by the EC2 user data
   script on first boot.
+- **WebSockets** (the `progress` GraphQL subscription rides `/graphql` over WS):
+  nginx sets `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers via a
+  `map $http_upgrade $connection_upgrade` block (in `userdata.ts`) so the handshake
+  proxies through. CloudFront needs no extra config — the `/graphql` behavior already
+  forwards all headers (`headers: ['*']`) and is uncacheable, so it passes WS through.
 - **EBS device name** — t3 instances are Nitro-based; the OS sees the 50 GiB
   data volume as `/dev/nvme1n1` (not `/dev/xvdf`). The user data polls for the
   device before formatting it.

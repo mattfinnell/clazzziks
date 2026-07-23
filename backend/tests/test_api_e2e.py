@@ -1,6 +1,6 @@
 """E2e tests for the HTTP API with real network downloads.
 
-These cover the full stack — GraphQL routing, real downloader, ``/files`` stream —
+These cover the full stack — the download job, real downloader, ``/files`` stream —
 with no mocking. Everything served is MP3. Complement to ``test_e2e.py``
 (downloader layer) and ``test_web.py`` (GraphQL layer, mocked downloads).
 
@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from clazzziks.api import create_app
 
-from .gql import do_download, download_error
+from .gql import do_download, run_download
 
 _YT          = "https://www.youtube.com/watch?v=ijo-otbV0Dw&list=RDIxFQ9aUAAJM&index=2"
 _SC          = "https://soundcloud.com/mattfinnell/lockyear"
@@ -36,7 +36,7 @@ def live_client():
 
 @pytest.mark.e2e
 def test_api_youtube_returns_mp3(live_client):
-    resp, _ = do_download(live_client, _YT)
+    resp, _complete, _events = do_download(live_client, _YT)
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("audio/mpeg")
     assert len(resp.content) > 0
@@ -44,22 +44,27 @@ def test_api_youtube_returns_mp3(live_client):
 
 @pytest.mark.e2e
 def test_api_soundcloud_returns_mp3(live_client):
-    resp, _ = do_download(live_client, _SC)
+    resp, _complete, _events = do_download(live_client, _SC)
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("audio/mpeg")
     assert len(resp.content) > 0
 
 
 @pytest.mark.e2e
-def test_api_soundcloud_drm_is_error(live_client):
-    assert download_error(live_client, _SC_DRM)
+def test_api_soundcloud_drm_is_a_failed_track(live_client):
+    # DRM/geo failures are per-track events now, not a job-level error.
+    events = run_download(_SC_DRM)
+    failed = [e for e in events if e["__typename"] == "TrackProgress" and e["state"] == "failed"]
+    assert failed
+    assert events[-1]["__typename"] == "DownloadComplete"
+    assert events[-1]["token"] is None
 
 
 # --- bundle -----------------------------------------------------------------
 
 @pytest.mark.e2e
 def test_api_bundle_returns_zip(live_client):
-    resp, _ = do_download(live_client, f"{_YT}\n{_SC}")
+    resp, _complete, _events = do_download(live_client, f"{_YT}\n{_SC}")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
     assert resp.content[:2] == b"PK"
@@ -69,15 +74,13 @@ def test_api_bundle_returns_zip(live_client):
 
 @pytest.mark.e2e
 def test_api_spreadsheet_returns_zip(live_client):
-    from .gql import gql
-    body = gql(live_client, "mutation ($l: String!) { download(links: $l) { token } }", {"l": _SPREADSHEET})
-    if body.get("errors"):
-        err = body["errors"][0]["message"]
-        if "401" in err or "Unauthorized" in err or "403" in err:
+    try:
+        resp, _complete, _events = do_download(live_client, _SPREADSHEET)
+    except AssertionError as exc:
+        # A private sheet fails during input expansion (collect_urls) -> mutation error.
+        if any(x in str(exc) for x in ("401", "Unauthorized", "403")):
             pytest.skip("Sheet is not publicly shared — set sharing to 'anyone with the link'")
-        raise AssertionError(err)
-    token = body["data"]["download"]["token"]
-    resp = live_client.get(f"/files/{token}")
+        raise
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
     assert resp.content[:2] == b"PK"

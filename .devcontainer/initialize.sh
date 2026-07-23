@@ -21,7 +21,7 @@ for dir in \
 done
 
 # Single-file mount sources must exist as FILES (else Docker makes a directory).
-touch "$HOME/.zshrc"
+touch "$HOME/.zshrc" "$HOME/.claude.json"
 
 # Pulumi's state dir (~/.pulumi on the host) is bind-mounted to PULUMI_HOME in
 # the container, so logins, plugins, and stacks persist across rebuilds. Mounting

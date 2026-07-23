@@ -11,35 +11,35 @@ permission classes wrap the existing Firebase logic in :mod:`clazzziks.auth` and
 on success, stash the resolved :class:`~clazzziks.auth.AuthUser` on the request
 context for the resolver to read.
 
-Binary payloads can't travel over GraphQL/JSON, so :meth:`Mutation.download`
-performs the fetch/transcode and returns a short-lived **token**; the actual MP3 or
-ZIP bytes are streamed by the companion ``GET /files/{token}`` route in
-:mod:`clazzziks.api`.
+A bulk download runs as a background **job**: :meth:`Mutation.download` validates
+the input, starts a :class:`~clazzziks.jobs.DownloadJob`, and returns its
+``job_id``; the client then watches :meth:`Subscription.progress` for per-track
+events. Binary payloads can't travel over GraphQL/JSON, so the terminal event
+carries a short-lived **token** and the actual MP3/ZIP bytes are streamed by the
+companion ``GET /files/{token}`` route in :mod:`clazzziks.api`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, AsyncGenerator, Optional, Union
 
 import strawberry
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, WebSocket
 from strawberry.permission import BasePermission
 from strawberry.schema.config import StrawberryConfig
 
 from .formats import AudioFormat, DEFAULT_MP3_BITRATE, BUNDLE_FORMAT
-from .downloader import download_audio, DownloadUnavailableError
-from .bundle import download_bundle
 from .inputs import collect_urls
 from .logging_config import log_event
 from .auth import (
     AuthUser, require_user, require_admin, auth_configured,
     list_users as list_firebase_users,
 )
-from . import db
+from . import db, jobs
 
 logger = logging.getLogger(__name__)
 
@@ -66,70 +66,6 @@ def _over_rate_limit(user: AuthUser) -> tuple[bool, int, int]:
         return False, 0, window
     used = db.count_recent_downloads(user.uid, window)
     return used >= limit, limit, window
-
-
-# --- token-based file handoff ----------------------------------------------
-# The download mutation can't return bytes over GraphQL, so it registers the
-# produced file under an unguessable token and hands that back; GET /files/{token}
-# (in api.py) streams it. Entries live for the process lifetime — fine given the
-# ephemeral tracks/ directory is wiped with the container.
-_FILE_TOKENS: dict[str, tuple[Path, Optional[str]]] = {}
-
-
-def register_file(path: Path, media_type: Optional[str] = None) -> str:
-    token = uuid.uuid4().hex
-    _FILE_TOKENS[token] = (path, media_type)
-    return token
-
-
-def get_file(token: str) -> Optional[tuple[Path, Optional[str]]]:
-    return _FILE_TOKENS.get(token)
-
-
-@dataclass
-class _Prepared:
-    """A downloaded artifact ready to be tokenised and served."""
-    path: Path
-    media_type: Optional[str]
-    warnings: list[str]
-    failures: list[str]
-
-
-def _prepare_single(
-    url: str, fmt: AudioFormat, bitrate: int, request_id: str, user: AuthUser
-) -> _Prepared:
-    # Cache hit: re-serve the existing file, skipping the fetch/transcode entirely.
-    cached = db.get_cached_track(url, fmt.value)
-    if cached:
-        db.log_download(user.uid, user.email, url)
-        log_event(logger, logging.INFO, "cache.hit", url=url, format=fmt.value)
-        return _Prepared(Path(cached.path), None, [], [])
-
-    outdir = _TRACKS_DIR / (request_id or uuid.uuid4().hex[:8])
-    result = download_audio(url, fmt=fmt, outdir=outdir, bitrate=bitrate)
-    db.cache_track(
-        url, fmt.value, path=str(result.path),
-        title=result.title, source=result.source,
-    )
-    db.log_download(user.uid, user.email, url)
-    return _Prepared(result.path, None, list(result.warnings), [])
-
-
-def _prepare_bundle(
-    urls: list[str], fmt: AudioFormat, bitrate: int, request_id: str, user: AuthUser
-) -> _Prepared:
-    outdir = _TRACKS_DIR / (request_id or uuid.uuid4().hex[:8])
-    result = download_bundle(urls, fmt=fmt, outdir=outdir, bitrate=bitrate)
-    # Cache and log each track that actually downloaded so a later single-link
-    # request for the same source+format is a cache hit.
-    for item in result.items:
-        db.cache_track(
-            item.url, fmt.value, path=str(item.path),
-            title=item.title, source=item.source,
-        )
-        db.log_download(user.uid, user.email, item.url)
-    failures = [f"failed: {u}" for u, _ in result.failures]
-    return _Prepared(result.path, "application/zip", list(result.warnings), failures)
 
 
 # --- GraphQL types ---------------------------------------------------------
@@ -185,12 +121,49 @@ class UserList:
 
 
 @strawberry.type
-class DownloadResult:
-    # `token` feeds GET /files/{token}, which streams the actual bytes.
-    token: str
-    filename: str
+class DownloadStart:
+    # Returned by the `download` mutation; feed job_id to the `progress` subscription.
+    job_id: str
+    count: int
+
+
+@strawberry.type
+class TrackProgress:
+    """One track's live state within a running job."""
+    url: str
+    title: Optional[str]
+    index: int
+    total: int
+    state: str  # queued | downloading | transcoding | done | failed
+    pct: Optional[float]
+    error: Optional[str]
+
+
+@strawberry.type
+class DownloadComplete:
+    """Terminal progress event. `token` feeds GET /files/{token}; None if the job
+    produced nothing downloadable."""
+    token: Optional[str]
+    filename: Optional[str]
     warnings: list[str]
     failures: list[str]
+
+
+ProgressEvent = Annotated[
+    Union[TrackProgress, DownloadComplete], strawberry.union("ProgressEvent")
+]
+
+
+def _to_gql_event(event: jobs.Event) -> ProgressEvent:
+    if isinstance(event, jobs.TrackEvent):
+        return TrackProgress(
+            url=event.url, title=event.title, index=event.index, total=event.total,
+            state=event.state, pct=event.pct, error=event.error,
+        )
+    return DownloadComplete(
+        token=event.token, filename=event.filename,
+        warnings=list(event.warnings), failures=list(event.failures),
+    )
 
 
 # --- mappers ---------------------------------------------------------------
@@ -368,17 +341,18 @@ class Mutation:
         return _users_payload()
 
     @strawberry.mutation(permission_classes=[IsUser])
-    def download(self, info: strawberry.Info, links: str) -> DownloadResult:
+    async def download(self, info: strawberry.Info, links: str) -> DownloadStart:
+        """Validate input, start a background download job, return its id.
+
+        Per-track progress and the final ``/files`` token stream from the
+        ``progress(job_id)`` subscription — this only kicks the job off.
+        """
         request: Request = info.context["request"]
         user: AuthUser = info.context["user"]
 
         raw_input = (links or "").strip()
         if not raw_input:
             raise ValueError("No link(s) provided.")
-
-        # Everything users download is 320kbps MP3 — no format/bitrate choice.
-        fmt = AudioFormat.MP3
-        bitrate = DEFAULT_MP3_BITRATE
 
         # Enforce the quota before any work begins (VIPs / open mode are unlimited).
         over, limit, window = _over_rate_limit(user)
@@ -393,50 +367,57 @@ class Mutation:
                 "Ask an admin for VIP access."
             )
 
-        urls = collect_urls(raw_input)  # ValueError -> surfaced as a GraphQL error
+        # Input expansion (spreadsheet fetch, ytsearch) can do network I/O, so run
+        # it off the event loop. ValueError surfaces as a GraphQL error.
+        loop = asyncio.get_running_loop()
+        urls = await loop.run_in_executor(None, collect_urls, raw_input)
         if not urls:
             raise ValueError("No valid links found in the input.")
 
         request_id = getattr(request.state, "request_id", None)
+        outdir = _TRACKS_DIR / (request_id or uuid.uuid4().hex[:8])
+        job = jobs.broker.create(
+            urls, uid=user.uid, email=user.email, outdir=outdir, loop=loop,
+        )
+        job.start()
         log_event(
             logger, logging.INFO, "download.request",
-            request_id=request_id, links=len(urls), bitrate=bitrate,
+            request_id=request_id, job_id=job.id, links=len(urls),
             uid=user.uid, vip=db.is_vip(user.email),
         )
-
-        try:
-            if len(urls) == 1:
-                prepared = _prepare_single(urls[0], fmt, bitrate, request_id, user)
-            else:
-                prepared = _prepare_bundle(urls, fmt, bitrate, request_id, user)
-        except (ValueError, DownloadUnavailableError):
-            # Bad input / DRM-geo-removed: surface the message verbatim.
-            raise
-        except Exception as exc:  # noqa: BLE001 - unexpected ffmpeg/network failure
-            log_event(
-                logger, logging.ERROR, "download.failed",
-                request_id=request_id, error=str(exc), exc_info=True,
-            )
-            raise RuntimeError(f"Download failed: {exc}") from exc
-
-        token = register_file(prepared.path, prepared.media_type)
-        return DownloadResult(
-            token=token,
-            filename=prepared.path.name,
-            warnings=prepared.warnings,
-            failures=prepared.failures,
-        )
+        return DownloadStart(job_id=job.id, count=len(urls))
 
 
-async def get_context(request: Request) -> dict:
-    """GraphQL context: carries the raw request so permissions can read auth
-    headers and stash the resolved user for resolvers."""
-    return {"request": request}
+@strawberry.type
+class Subscription:
+    @strawberry.subscription
+    async def progress(self, job_id: str) -> AsyncGenerator[ProgressEvent, None]:
+        """Stream a download job's per-track progress, ending with the terminal
+        DownloadComplete event.
+
+        Ungated by design: a ``job_id`` is an unguessable handle only an authorized
+        caller (who passed the ``download`` mutation's IsUser check) can obtain.
+        An unknown id yields an empty stream.
+        """
+        job = jobs.broker.get(job_id)
+        if job is None:
+            return
+        async for event in job.subscribe():
+            yield _to_gql_event(event)
+
+
+async def get_context(request: Request = None, websocket: WebSocket = None) -> dict:
+    """GraphQL context: carries the connection (HTTP Request for queries/mutations,
+    WebSocket for subscriptions) so permissions can read auth headers and stash the
+    resolved user for resolvers. Request/WebSocket are special-injected by FastAPI,
+    whichever the transport provides."""
+    return {"request": request or websocket}
 
 
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
+    subscription=Subscription,
     # Keep field names snake_case so the emitted shapes match what the React
     # client already builds against (Me.is_vip, Vip.rate_limit, ...).
     config=StrawberryConfig(auto_camel_case=False),

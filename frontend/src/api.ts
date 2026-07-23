@@ -1,4 +1,5 @@
 import { GraphQLClient, gql, ClientError } from 'graphql-request'
+import { createClient as createWsClient } from 'graphql-ws'
 
 // The GraphQL API lives at /graphql; produced audio files stream from /files/:token
 // (see backend clazzziks/api.py). Both are same-origin in prod (CloudFront) and via
@@ -11,6 +12,8 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 const resolveUrl = (path: string): string => new URL(path, window.location.origin).toString()
 const GQL_ENDPOINT = resolveUrl(`${API_BASE}/graphql`)
 const FILES_BASE = resolveUrl(`${API_BASE}/files`)
+// Subscriptions ride the same endpoint over WebSocket (http->ws, https->wss).
+const WS_ENDPOINT = GQL_ENDPOINT.replace(/^http/, 'ws')
 
 // The auth layer registers a getter here (see AuthContext) so requests can
 // attach the signed-in user's Firebase ID token without api.ts importing
@@ -33,6 +36,15 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 const client = new GraphQLClient(GQL_ENDPOINT)
+
+// Lazy WS client for the progress subscription. Subscriptions are ungated
+// server-side (the job_id is an unguessable handle), but we still pass the token
+// in connectionParams for parity/future use.
+const wsClient = createWsClient({
+  url: WS_ENDPOINT,
+  lazy: true,
+  connectionParams: async () => await authHeaders(),
+})
 
 // Flatten graphql-request's errors into the single-message shape the UI shows.
 // A GraphQL error (resolver threw) surfaces its message; a transport failure
@@ -77,40 +89,110 @@ export async function fetchConfig(): Promise<Config> {
   return data.config
 }
 
-// --- download --------------------------------------------------------------
+// --- download job + live per-track progress --------------------------------
 
-interface DownloadParams {
-  links: string
+export type TrackState = 'queued' | 'downloading' | 'transcoding' | 'done' | 'failed'
+
+export interface TrackProgress {
+  url: string
+  title: string | null
+  index: number
+  total: number
+  state: TrackState
+  pct: number | null
+  error: string | null
 }
 
-interface DownloadResult {
+export interface DownloadOutcome {
   filename: string
   blob: Blob
   warnings: string | null
+  failures: string[]
 }
 
 const DOWNLOAD_MUTATION = gql`
   mutation ($links: String!) {
     download(links: $links) {
-      token
-      filename
-      warnings
-      failures
+      job_id
+      count
     }
   }
 `
 
-export async function requestDownload({ links }: DownloadParams): Promise<DownloadResult> {
-  // Two-phase: the mutation does the work and hands back a token; the actual bytes
-  // stream from /files/:token (GraphQL/JSON can't carry the binary payload).
-  const data = await request<{
-    download: { token: string; filename: string; warnings: string[]; failures: string[] }
-  }>(DOWNLOAD_MUTATION, { links })
-  const { token, filename, warnings, failures } = data.download
+const PROGRESS_SUBSCRIPTION = gql`
+  subscription ($job_id: String!) {
+    progress(job_id: $job_id) {
+      __typename
+      ... on TrackProgress {
+        url
+        title
+        index
+        total
+        state
+        pct
+        error
+      }
+      ... on DownloadComplete {
+        token
+        filename
+        warnings
+        failures
+      }
+    }
+  }
+`
 
+interface CompleteEvent {
+  __typename: 'DownloadComplete'
+  token: string | null
+  filename: string | null
+  warnings: string[]
+  failures: string[]
+}
+type ProgressEvent = ({ __typename: 'TrackProgress' } & TrackProgress) | CompleteEvent
+
+// Start a download job and stream per-track progress. ``onTrack`` fires on every
+// track state change (queued -> downloading -> transcoding -> done/failed); the
+// promise resolves once the produced file/bundle has been fetched from /files, or
+// rejects on a mutation/job error.
+export async function startDownload(
+  links: string,
+  onTrack: (t: TrackProgress) => void,
+): Promise<DownloadOutcome> {
+  // 1. Kick off the job (validation/auth/rate-limit errors surface here).
+  const { download } = await request<{ download: { job_id: string; count: number } }>(
+    DOWNLOAD_MUTATION,
+    { links },
+  )
+
+  // 2. Stream progress over WebSocket until the terminal DownloadComplete event.
+  const complete = await new Promise<CompleteEvent>((resolve, reject) => {
+    const unsubscribe = wsClient.subscribe<{ progress: ProgressEvent }>(
+      { query: PROGRESS_SUBSCRIPTION, variables: { job_id: download.job_id } },
+      {
+        next: ({ data }) => {
+          const ev = data?.progress
+          if (!ev) return
+          if (ev.__typename === 'TrackProgress') onTrack(ev)
+          else {
+            resolve(ev)
+            unsubscribe()
+          }
+        },
+        error: (err) => reject(err instanceof Error ? err : new Error(String(err))),
+        complete: () => {},
+      },
+    )
+  })
+
+  if (!complete.token) {
+    throw new Error(complete.failures.join(' | ') || 'No tracks could be downloaded.')
+  }
+
+  // 3. Stream the produced file.
   let resp: Response
   try {
-    resp = await fetch(`${FILES_BASE}/${token}`, { headers: await authHeaders() })
+    resp = await fetch(`${FILES_BASE}/${complete.token}`, { headers: await authHeaders() })
   } catch (e) {
     throw new Error(`network error fetching download (${(e as Error).message})`)
   }
@@ -125,8 +207,13 @@ export async function requestDownload({ links }: DownloadParams): Promise<Downlo
   }
 
   const blob = await resp.blob()
-  const notes = [...warnings, ...failures]
-  return { filename, blob, warnings: notes.length ? notes.join(' | ') : null }
+  const notes = [...complete.warnings, ...complete.failures]
+  return {
+    filename: complete.filename ?? 'clazzziks-download',
+    blob,
+    warnings: notes.length ? notes.join(' | ') : null,
+    failures: complete.failures,
+  }
 }
 
 // --- caller status + VIP admin ---------------------------------------------

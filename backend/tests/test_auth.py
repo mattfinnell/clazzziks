@@ -3,8 +3,8 @@
 These don't need firebase-admin or the network: ``auth_configured()`` is made
 true via env, and token verification is monkeypatched. They cover the permission
 behaviour (anonymous pass-through, error on missing/invalid token, allowlist).
-GraphQL surfaces authz failures as ``errors`` (HTTP stays 200), so these assert
-on the error message rather than a status code.
+GraphQL surfaces authz failures as ``errors`` (the download mutation fails before
+a job starts), so these assert on the error message rather than a status code.
 """
 
 # pylint: disable=missing-function-docstring,redefined-outer-name
@@ -48,14 +48,14 @@ def _fake_audio(tmp_path: Path):
 def test_download_open_when_auth_not_configured(client, tmp_path, monkeypatch):
     # No Firebase creds -> anonymous pass-through (keeps local dev frictionless).
     monkeypatch.delenv("CLAZZZIKS_FIREBASE_PROJECT_ID", raising=False)
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_audio(tmp_path))
-    resp, _ = do_download(client, "https://youtu.be/abc")
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_audio(tmp_path))
+    resp, _complete, _events = do_download(client, "https://youtu.be/abc")
     assert resp.status_code == 200
     assert resp.content == b"audio-bytes"
 
 
 def test_download_requires_token_when_configured(client, configured):
-    assert "token" in download_error(client, "https://youtu.be/abc").lower()
+    assert "token" in download_error("https://youtu.be/abc").lower()
 
 
 def test_download_rejects_invalid_token(client, configured, monkeypatch):
@@ -65,7 +65,7 @@ def test_download_rejects_invalid_token(client, configured, monkeypatch):
 
     monkeypatch.setattr("clazzziks.auth.verify_token", boom)
     headers = {"Authorization": "Bearer bad-token"}
-    assert "Invalid or expired" in download_error(client, "https://youtu.be/abc", headers)
+    assert "Invalid or expired" in download_error("https://youtu.be/abc", headers)
 
 
 def test_download_succeeds_with_valid_token(client, configured, tmp_path, monkeypatch):
@@ -73,9 +73,11 @@ def test_download_succeeds_with_valid_token(client, configured, tmp_path, monkey
         "clazzziks.auth.verify_token",
         lambda _t: AuthUser(uid="u1", email="ok@example.com", name="OK", email_verified=True),
     )
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_audio(tmp_path))
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_audio(tmp_path))
 
-    resp, _ = do_download(client, "https://youtu.be/abc", headers={"Authorization": "Bearer good-token"})
+    resp, _complete, _events = do_download(
+        client, "https://youtu.be/abc", headers={"Authorization": "Bearer good-token"}
+    )
     assert resp.status_code == 200
     assert resp.content == b"audio-bytes"
 
@@ -86,7 +88,7 @@ def test_allowlist_blocks_unapproved_email(client, configured, monkeypatch):
         "clazzziks.auth.verify_token",
         lambda _t: AuthUser(uid="u2", email="stranger@example.com", email_verified=True),
     )
-    msg = download_error(client, "https://youtu.be/abc", {"Authorization": "Bearer good-token"})
+    msg = download_error("https://youtu.be/abc", {"Authorization": "Bearer good-token"})
     assert "pending approval" in msg.lower()
 
 
@@ -96,8 +98,10 @@ def test_allowlist_allows_approved_email(client, configured, tmp_path, monkeypat
         "clazzziks.auth.verify_token",
         lambda _t: AuthUser(uid="u3", email="VIP@example.com", email_verified=True),  # case-insensitive
     )
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_audio(tmp_path))
-    resp, _ = do_download(client, "https://youtu.be/abc", headers={"Authorization": "Bearer good-token"})
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_audio(tmp_path))
+    resp, _complete, _events = do_download(
+        client, "https://youtu.be/abc", headers={"Authorization": "Bearer good-token"}
+    )
     assert resp.status_code == 200
 
 
@@ -109,8 +113,8 @@ def test_unverified_email_is_rejected_on_protected_route(client, configured, tmp
         "clazzziks.auth.verify_token",
         lambda _t: AuthUser(uid="u9", email="spoof@example.com", email_verified=False),
     )
-    monkeypatch.setattr("clazzziks.schema.download_audio", _fake_audio(tmp_path))
-    msg = download_error(client, "https://youtu.be/abc", {"Authorization": "Bearer good-token"})
+    monkeypatch.setattr("clazzziks.jobs.download_audio", _fake_audio(tmp_path))
+    msg = download_error("https://youtu.be/abc", {"Authorization": "Bearer good-token"})
     assert "verify" in msg.lower()
 
 

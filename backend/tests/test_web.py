@@ -1,9 +1,10 @@
 """API tests for the GraphQL backend the frontend talks to (``/graphql``).
 
-These exercise the contract the React client in ``frontend/`` depends on
-(see ``frontend/src/api.ts``): the ``config`` query shape, the ``download``
-mutation + ``/files/{token}`` stream, and the GraphQL error surface for bad
-input. The downloaders are mocked so nothing hits the network.
+Covers the contract the React client in ``frontend/`` depends on (see
+``frontend/src/api.ts``): the ``config`` query, the ``download`` mutation +
+``progress`` subscription job flow, the ``/files/{token}`` stream, and the
+GraphQL error surface for bad input. Downloaders are mocked (no network); the
+subscription is driven at the schema level by the ``tests/gql.py`` helpers.
 
 The ``client`` fixture (FastAPI ``TestClient``) lives in ``conftest.py``.
 """
@@ -15,9 +16,8 @@ from urllib.parse import unquote
 
 from clazzziks.formats import AudioFormat
 from clazzziks.downloader import DownloadResult, DownloadUnavailableError
-from clazzziks.bundle import BundleResult
 
-from .gql import gql, gql_data, do_download, download_error
+from .gql import gql_data, do_download, run_download, download_error
 
 # Origin headers used to exercise CORS the way a browser would.
 _CORS = {"Origin": "http://localhost:5173"}
@@ -33,6 +33,13 @@ def _make_file(tmp_path: Path, name: str, data: bytes = b"audio-bytes") -> Path:
     return path
 
 
+def _states(events, url_substr=None):
+    return [
+        e["state"] for e in events
+        if e["__typename"] == "TrackProgress" and (url_substr is None or url_substr in e["url"])
+    ]
+
+
 # --- health / config -------------------------------------------------------
 
 def test_health(client):
@@ -42,24 +49,21 @@ def test_health(client):
 
 
 def test_config_shape_matches_frontend_contract(client):
-    data = gql_data(client, "{ config { formats default_format bundle_format } }")
-    # Fields the React client (Config) reads. Users no longer pick a format/bitrate;
-    # everything served is MP3.
-    cfg = data["config"]
+    cfg = gql_data(client, "{ config { formats default_format bundle_format } }")["config"]
+    # Users no longer pick a format/bitrate — everything served is MP3.
     assert cfg["formats"] == ["mp3"]
     assert cfg["default_format"] == "mp3"
     assert cfg["bundle_format"] == "mp3"
 
 
-# --- download: validation --------------------------------------------------
+# --- download: validation (mutation-level errors) --------------------------
 
 def test_download_requires_links(client):
-    assert "No link" in download_error(client, "")
+    assert "No link" in download_error("")
 
 
 def test_download_rejects_input_with_no_valid_links(client):
-    # "not a url" collects to zero valid links.
-    assert download_error(client, "not a url")
+    assert download_error("not a url")
 
 
 # --- download: single file -------------------------------------------------
@@ -73,23 +77,24 @@ def test_download_single_returns_file_with_warnings(client, tmp_path, monkeypatc
             fmt=AudioFormat.MP3, warnings=["low bitrate"],
         )
 
-    monkeypatch.setattr("clazzziks.schema.download_audio", fake_download_audio)
+    monkeypatch.setattr("clazzziks.jobs.download_audio", fake_download_audio)
 
-    resp, payload = do_download(client, "https://youtu.be/abc")
+    resp, complete, events = do_download(client, "https://youtu.be/abc")
     assert resp.status_code == 200
     assert mimetype(resp) == "audio/mpeg"
-    # Starlette encodes the filename as RFC 5987 filename*=; the frontend uses the
-    # GraphQL-returned name, but the stream still carries a sensible disposition.
     assert "Song [id].mp3" in unquote(resp.headers["content-disposition"])
     assert resp.content == b"audio-bytes"
-    assert payload["filename"] == "Song [id].mp3"
-    assert payload["warnings"] == ["low bitrate"]
-    assert payload["failures"] == []
+    assert complete["filename"] == "Song [id].mp3"
+    assert complete["warnings"] == ["low bitrate"]
+    assert complete["failures"] == []
+    # The track walked from queued -> ... -> done.
+    assert _states(events)[0] == "queued"
+    assert _states(events)[-1] == "done"
 
 
 def test_download_single_unicode_warning_is_preserved(client, tmp_path, monkeypatch):
-    # Warnings now travel as JSON (not an ASCII HTTP header), so typographic
-    # punctuation like an en-dash survives intact rather than needing sanitizing.
+    # Warnings travel as JSON now, so typographic punctuation (an en-dash) survives
+    # intact rather than needing the old ASCII HTTP-header sanitizing.
     audio = _make_file(tmp_path, "Song [id].mp3")
 
     def fake_download_audio(_url, **_kwargs):
@@ -98,48 +103,62 @@ def test_download_single_unicode_warning_is_preserved(client, tmp_path, monkeypa
             fmt=AudioFormat.MP3, warnings=["Deadmau5 – Strobe: low bitrate"],
         )
 
-    monkeypatch.setattr("clazzziks.schema.download_audio", fake_download_audio)
+    monkeypatch.setattr("clazzziks.jobs.download_audio", fake_download_audio)
 
-    _resp, payload = do_download(client, "https://youtu.be/abc")
-    assert payload["warnings"] == ["Deadmau5 – Strobe: low bitrate"]
+    _resp, complete, _events = do_download(client, "https://youtu.be/abc")
+    assert complete["warnings"] == ["Deadmau5 – Strobe: low bitrate"]
 
 
-def test_download_single_unavailable_is_error(client, monkeypatch):
-    def boom(url, *, fmt, outdir, bitrate):
+def test_download_single_unavailable_is_a_failed_track(client, monkeypatch):
+    def boom(url, *, fmt, outdir, bitrate, progress_hook=None):
         raise DownloadUnavailableError("DRM protected")
 
-    monkeypatch.setattr("clazzziks.schema.download_audio", boom)
-    assert "DRM" in download_error(client, "https://youtu.be/abc")
+    monkeypatch.setattr("clazzziks.jobs.download_audio", boom)
+
+    events = run_download("https://youtu.be/abc")
+    failed = [e for e in events if e["__typename"] == "TrackProgress" and e["state"] == "failed"]
+    assert failed and "DRM" in failed[0]["error"]
+    # Nothing downloadable -> terminal event has no token.
+    assert events[-1]["__typename"] == "DownloadComplete"
+    assert events[-1]["token"] is None
 
 
-def test_download_single_unexpected_error_is_wrapped(client, monkeypatch):
-    def boom(url, *, fmt, outdir, bitrate):
+def test_download_single_unexpected_error_is_a_failed_track(client, monkeypatch):
+    def boom(url, *, fmt, outdir, bitrate, progress_hook=None):
         raise RuntimeError("ffmpeg exploded")
 
-    monkeypatch.setattr("clazzziks.schema.download_audio", boom)
-    assert "Download failed" in download_error(client, "https://youtu.be/abc")
+    monkeypatch.setattr("clazzziks.jobs.download_audio", boom)
+
+    events = run_download("https://youtu.be/abc")
+    failed = [e for e in events if e["__typename"] == "TrackProgress" and e["state"] == "failed"]
+    assert failed and "ffmpeg" in failed[0]["error"]
+    assert events[-1]["token"] is None
 
 
 # --- download: bundle ------------------------------------------------------
 
 def test_download_bundle_returns_zip_with_failures(client, tmp_path, monkeypatch):
-    archive = _make_file(tmp_path, "clazzziks_bundle.zip", b"PK\x03\x04zip")
+    good = _make_file(tmp_path, "Track A [a].mp3")
 
-    def fake_bundle(_urls, **_kwargs):
-        return BundleResult(
-            path=archive,
-            warnings=["Track A: low bitrate"],
-            failures=[("https://youtu.be/bad", "unavailable")],
+    def fake_download_audio(url, *, fmt, outdir, bitrate, progress_hook=None):
+        if "bad" in url:
+            raise DownloadUnavailableError("unavailable")
+        return DownloadResult(
+            path=good, title="Track A", source="youtube",
+            fmt=fmt, warnings=["low bitrate"], url=url,
         )
 
-    monkeypatch.setattr("clazzziks.schema.download_bundle", fake_bundle)
+    monkeypatch.setattr("clazzziks.jobs.download_audio", fake_download_audio)
 
-    resp, payload = do_download(client, "https://youtu.be/a\nhttps://youtu.be/bad")
+    resp, complete, events = do_download(client, "https://youtu.be/a\nhttps://youtu.be/bad")
     assert resp.status_code == 200
     assert mimetype(resp) == "application/zip"
     assert "clazzziks_bundle.zip" in resp.headers["content-disposition"]
-    assert payload["warnings"] == ["Track A: low bitrate"]
-    assert payload["failures"] == ["failed: https://youtu.be/bad"]
+    assert complete["failures"] == ["failed: https://youtu.be/bad"]
+    assert any("Track A: low bitrate" in w for w in complete["warnings"])
+    # The bad URL surfaced a failed track event; the good one completed.
+    assert "failed" in _states(events, "bad")
+    assert "done" in _states(events, "/a")
 
 
 # --- CORS so a cross-origin frontend can read the file response ------------
@@ -147,12 +166,12 @@ def test_download_bundle_returns_zip_with_failures(client, tmp_path, monkeypatch
 def test_files_response_exposes_content_disposition(client, tmp_path, monkeypatch):
     audio = _make_file(tmp_path, "Song [id].mp3")
     monkeypatch.setattr(
-        "clazzziks.schema.download_audio",
+        "clazzziks.jobs.download_audio",
         lambda _u, **_k: DownloadResult(
             path=audio, title="Song", source="youtube", fmt=AudioFormat.MP3,
         ),
     )
-    resp, _payload = do_download(client, "https://youtu.be/abc", headers=_CORS)
+    resp, _complete, _events = do_download(client, "https://youtu.be/abc", headers=_CORS)
     assert resp.headers["access-control-allow-origin"] == "*"
     assert "Content-Disposition" in resp.headers["access-control-expose-headers"]
 

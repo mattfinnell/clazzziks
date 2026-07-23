@@ -31,7 +31,8 @@ from strawberry.fastapi import GraphQLRouter
 
 from .logging_config import configure_logging, log_event
 from .auth import AuthUser, require_user
-from .schema import schema, get_context, get_file
+from .schema import schema, get_context
+from .jobs import get_file
 
 logger = logging.getLogger(__name__)
 

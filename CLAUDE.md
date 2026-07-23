@@ -5,12 +5,20 @@ Audio downloader supporting YouTube and SoundCloud. Outputs MP3, WAV, or FLAC vi
 ## API surface
 
 The web/HTTP API is **GraphQL** (Strawberry), served at `POST /graphql` (GraphiQL on
-`GET /graphql`). The schema in `backend/clazzziks/schema.py` is the single source of
-truth; its emitted SDL (`backend/clazzziks/schema.graphql`) is the shared contract.
-GraphQL/JSON can't carry binary, so the `download` mutation returns a short-lived
-**token** and the produced MP3/ZIP bytes stream from the one non-GraphQL route,
-`GET /files/{token}`. In prod the whole surface is **HTTPS** — CloudFront redirects
-viewers HTTP→HTTPS and adds HSTS (the CloudFront↔origin hop stays HTTP by design).
+`GET /graphql`, subscriptions over WebSocket at the same path). The schema in
+`backend/clazzziks/schema.py` is the single source of truth; its emitted SDL
+(`backend/clazzziks/schema.graphql`) is the shared contract.
+
+A download runs as a background **job**: the `download` mutation validates the input,
+starts the job (`backend/clazzziks/jobs.py`), and returns a `job_id`; the client then
+watches the `progress(job_id)` **subscription** for per-track events (queued →
+downloading → transcoding → done/failed, up to 4 tracks in parallel). GraphQL/JSON
+can't carry binary, so the terminal event carries a short-lived **token** and the
+produced MP3/ZIP bytes stream from the one non-GraphQL route, `GET /files/{token}`.
+
+In prod the whole surface is **HTTPS** — CloudFront redirects viewers HTTP→HTTPS and
+adds HSTS (the CloudFront↔origin hop stays HTTP by design); the subscription's
+WebSocket rides the same `/graphql` path (nginx upgrades it; CloudFront passes it through).
 
 ## Layout
 
