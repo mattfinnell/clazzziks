@@ -101,13 +101,12 @@ export interface TrackProgress {
   state: TrackState
   pct: number | null
   error: string | null
+  warnings: string[]
 }
 
 export interface DownloadOutcome {
   filename: string
   blob: Blob
-  warnings: string | null
-  failures: string[]
 }
 
 const DOWNLOAD_MUTATION = gql`
@@ -131,6 +130,7 @@ const PROGRESS_SUBSCRIPTION = gql`
         state
         pct
         error
+        warnings
       }
       ... on DownloadComplete {
         token
@@ -207,12 +207,9 @@ export async function startDownload(
   }
 
   const blob = await resp.blob()
-  const notes = [...complete.warnings, ...complete.failures]
   return {
     filename: complete.filename ?? 'clazzziks-download',
     blob,
-    warnings: notes.length ? notes.join(' | ') : null,
-    failures: complete.failures,
   }
 }
 

@@ -102,6 +102,17 @@ export default function Downloader() {
     () => Object.values(tracks).sort((a, b) => a.index - b.index),
     [tracks],
   )
+  // Same warning text (e.g. a shared bitrate note) collapses to one numbered
+  // marker, referenced from every track row it applies to — footnote-style.
+  const warningLegend = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const t of trackList) {
+      for (const w of t.warnings) {
+        if (!map.has(w)) map.set(w, map.size + 1)
+      }
+    }
+    return map
+  }, [trackList])
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -151,14 +162,14 @@ export default function Downloader() {
             </button>
           </form>
 
-          <TrackReadout tracks={trackList} />
+          <TrackReadout tracks={trackList} warningLegend={warningLegend} />
+          <WarningLegend legend={warningLegend} />
 
           <StatusNote
             isPending={download.isPending}
             isError={download.isError}
             isSuccess={download.isSuccess}
             error={download.error}
-            warnings={download.data?.warnings ?? null}
             filename={download.data?.filename ?? ''}
           />
 
@@ -178,18 +189,30 @@ export default function Downloader() {
 }
 
 // Docker-build-style readout: one line per track advancing through its states.
-function TrackReadout({ tracks }: { tracks: TrackProgress[] }) {
+function TrackReadout({
+  tracks,
+  warningLegend,
+}: {
+  tracks: TrackProgress[]
+  warningLegend: Map<string, number>
+}) {
   if (tracks.length === 0) return null
   return (
     <ul className="downloader__tracks" role="status" aria-live="polite">
       {tracks.map((t) => (
-        <TrackLine key={t.index} track={t} />
+        <TrackLine key={t.index} track={t} warningLegend={warningLegend} />
       ))}
     </ul>
   )
 }
 
-function TrackLine({ track }: { track: TrackProgress }) {
+function TrackLine({
+  track,
+  warningLegend,
+}: {
+  track: TrackProgress
+  warningLegend: Map<string, number>
+}) {
   const label = track.title || shortUrl(track.url)
   const pct = track.pct ?? (track.state === 'done' ? 100 : 0)
   let status: string
@@ -198,17 +221,41 @@ function TrackLine({ track }: { track: TrackProgress }) {
     case 'downloading': status = `${Math.round(pct)}%`; break
     case 'transcoding': status = 'transcoding'; break
     case 'done': status = 'done ✓'; break
-    default: status = `failed — ${track.error ?? 'error'}`
+    default: status = 'failed'
   }
+  const markers = track.warnings.map((w) => warningLegend.get(w)).filter((n): n is number => n != null)
   return (
     <li className={`downloader__track downloader__track--${track.state}`}>
       <span className="downloader__track-id">{String(track.index + 1).padStart(2, '0')}</span>
-      <span className="downloader__track-label" title={track.url}>{label}</span>
+      <span className="downloader__track-label" title={track.url}>
+        {label}
+        {markers.length > 0 && (
+          <sup className="downloader__track-markers">{markers.map((n) => `[${n}]`).join('')}</sup>
+        )}
+      </span>
       <span className="downloader__track-bar" aria-hidden="true">
         <i style={{ width: `${pct}%` }} />
       </span>
       <span className="downloader__track-status">{status}</span>
+      {track.state === 'failed' && (
+        <span className="downloader__track-reason">{track.error ?? 'error'}</span>
+      )}
     </li>
+  )
+}
+
+// Footnote table for warning markers referenced from the readout above.
+function WarningLegend({ legend }: { legend: Map<string, number> }) {
+  if (legend.size === 0) return null
+  const entries = Array.from(legend.entries()).sort((a, b) => a[1] - b[1])
+  return (
+    <ul className="downloader__warnings" aria-label="warnings">
+      {entries.map(([text, n]) => (
+        <li key={n}>
+          <span className="downloader__warnings-marker">{`[${n}]`}</span> {text}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -228,14 +275,12 @@ function StatusNote({
   isError,
   isSuccess,
   error,
-  warnings,
   filename,
 }: {
   isPending: boolean
   isError: boolean
   isSuccess: boolean
   error: unknown
-  warnings: string | null
   filename: string
 }) {
   let kind = 'idle'
@@ -247,8 +292,8 @@ function StatusNote({
     kind = 'error'
     text = `!! error: ${(error as Error)?.message ?? 'download failed'}`
   } else if (isSuccess) {
-    kind = warnings ? 'warn' : 'ok'
-    text = warnings ? `?? done with warnings: ${warnings}` : `ok: downloaded ${filename}`
+    kind = 'ok'
+    text = `ok: downloaded ${filename}`
   }
   return (
     <p className={`downloader__note downloader__note--${kind}`}>

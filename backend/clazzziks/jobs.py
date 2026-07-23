@@ -23,7 +23,7 @@ import asyncio
 import logging
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Union
 
@@ -74,6 +74,7 @@ class TrackEvent:
     state: str
     pct: Optional[float]
     error: Optional[str]
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -194,10 +195,10 @@ class DownloadJob:
         cached = db.get_cached_track(url, fmt.value)
         if cached:
             db.log_download(self.uid, self.email, url)
-            self._emit(TrackEvent(url, cached.title, index, total, DONE, 100.0, None))
+            self._emit(TrackEvent(url, cached.title, index, total, DONE, 100.0, None, warnings=list(cached.warnings)))
             return "ok", DownloadResult(
                 path=Path(cached.path), title=cached.title or "audio",
-                source=cached.source or "", fmt=fmt, url=url,
+                source=cached.source or "", fmt=fmt, url=url, warnings=list(cached.warnings),
             )
 
         self._emit(TrackEvent(url, None, index, total, DOWNLOADING, 0.0, None))
@@ -215,9 +216,12 @@ class DownloadJob:
             self._emit(TrackEvent(url, None, index, total, FAILED, None, str(exc)))
             return "fail", (url, str(exc))
 
-        db.cache_track(url, fmt.value, path=str(result.path), title=result.title, source=result.source)
+        db.cache_track(
+            url, fmt.value, path=str(result.path), title=result.title,
+            source=result.source, warnings=result.warnings,
+        )
         db.log_download(self.uid, self.email, url)
-        self._emit(TrackEvent(url, result.title, index, total, DONE, 100.0, None))
+        self._emit(TrackEvent(url, result.title, index, total, DONE, 100.0, None, warnings=list(result.warnings)))
         return "ok", result
 
     def _on_ytdlp(self, index: int, url: str, total: int, d: dict) -> None:

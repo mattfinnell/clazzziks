@@ -53,6 +53,7 @@ type TrackProgress {
   state: String!
   pct: Float
   error: String
+  warnings: [String!]!
 }
 
 type User {

@@ -40,6 +40,7 @@ from sqlalchemy import (
     func,
     select,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -64,6 +65,9 @@ class TrackCacheRow(Base):
     path: Mapped[str] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Quality warnings (e.g. low source bitrate) from the download that produced
+    # this cached file — replayed to cache hits so they see the same notices.
+    warnings: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -116,6 +120,7 @@ class CachedTrack:
     path: str
     title: str | None
     source: str | None
+    warnings: list[str]
     created_at: datetime
 
 
@@ -234,7 +239,8 @@ def get_cached_track(url: str, fmt: str) -> CachedTrack | None:
             return None
         return CachedTrack(
             url=row.url, fmt=row.fmt, path=row.path,
-            title=row.title, source=row.source, created_at=row.created_at,
+            title=row.title, source=row.source,
+            warnings=list(row.warnings or []), created_at=row.created_at,
         )
 
 
@@ -245,16 +251,19 @@ def cache_track(
     path: str,
     title: str | None = None,
     source: str | None = None,
+    warnings: list[str] | None = None,
 ) -> None:
+    warnings = warnings or []
     with Session(_engine()) as s:
         row = s.get(TrackCacheRow, (url, fmt))
         if row is None:
             s.add(TrackCacheRow(
                 url=url, fmt=fmt, path=path, title=title,
-                source=source, created_at=_now(),
+                source=source, warnings=warnings, created_at=_now(),
             ))
         else:
-            row.path, row.title, row.source, row.created_at = path, title, source, _now()
+            row.path, row.title, row.source = path, title, source
+            row.warnings, row.created_at = warnings, _now()
         s.commit()
 
 

@@ -137,6 +137,7 @@ class TrackProgress:
     state: str  # queued | downloading | transcoding | done | failed
     pct: Optional[float]
     error: Optional[str]
+    warnings: list[str]
 
 
 @strawberry.type
@@ -158,7 +159,7 @@ def _to_gql_event(event: jobs.Event) -> ProgressEvent:
     if isinstance(event, jobs.TrackEvent):
         return TrackProgress(
             url=event.url, title=event.title, index=event.index, total=event.total,
-            state=event.state, pct=event.pct, error=event.error,
+            state=event.state, pct=event.pct, error=event.error, warnings=list(event.warnings),
         )
     return DownloadComplete(
         token=event.token, filename=event.filename,
