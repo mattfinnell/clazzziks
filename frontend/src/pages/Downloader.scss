@@ -196,11 +196,48 @@
     text-overflow: ellipsis;
   }
 
+  &__track-markers {
+    margin-left: 2px;
+    color: var(--amber);
+  }
+
+  // Full failure reason, wrapped on its own line under a failed track's row.
+  &__track-reason {
+    grid-column: 1 / -1;
+    padding-left: 32px;
+    color: var(--red);
+    opacity: 0.85;
+    white-space: normal;
+    word-break: break-word;
+  }
+
   @media (max-width: 600px) {
     &__track {
       grid-template-columns: 18px minmax(0, 1fr) 64px;
     }
     &__track-bar { display: none; }
+    &__track-reason { padding-left: 22px; }
+  }
+
+  // Footnote table for warning markers, referenced from track rows above.
+  &__warnings {
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    list-style: none;
+    background: #010701;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--amber);
+
+    li + li { margin-top: 2px; }
+  }
+
+  &__warnings-marker {
+    display: inline-block;
+    min-width: 24px;
+    color: var(--amber);
+    text-shadow: 0 0 6px rgba(255, 207, 77, 0.4);
   }
 
   // Backend status indicator in the title bar.
