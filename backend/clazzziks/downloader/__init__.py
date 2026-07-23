@@ -57,9 +57,13 @@ def download_audio(
     fmt: AudioFormat | str = AudioFormat.MP3,
     outdir: str | os.PathLike = ".",
     bitrate: int = DEFAULT_MP3_BITRATE,
+    progress_hook=None,
 ) -> DownloadResult:
     """Download the audio at ``url`` and transcode it to ``fmt``.
 
-    Thin facade that dispatches to the right :class:`Downloader`.
+    Thin facade that dispatches to the right :class:`Downloader`. ``progress_hook``
+    is forwarded to yt-dlp for live per-track download/transcode progress.
     """
-    return downloader_for(url).download(url, fmt=fmt, outdir=outdir, bitrate=bitrate)
+    return downloader_for(url).download(
+        url, fmt=fmt, outdir=outdir, bitrate=bitrate, progress_hook=progress_hook
+    )

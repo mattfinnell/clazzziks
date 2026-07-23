@@ -1,6 +1,24 @@
 # Project Root - CLAZZZIKS
 
-Audio downloader supporting YouTube and SoundCloud. Outputs MP3, WAV, or FLAC via a CLI, web UI, or HTTP API.
+Audio downloader supporting YouTube and SoundCloud. Outputs MP3, WAV, or FLAC via a CLI, web UI, or GraphQL API.
+
+## API surface
+
+The web/HTTP API is **GraphQL** (Strawberry), served at `POST /graphql` (GraphiQL on
+`GET /graphql`, subscriptions over WebSocket at the same path). The schema in
+`backend/clazzziks/schema.py` is the single source of truth; its emitted SDL
+(`backend/clazzziks/schema.graphql`) is the shared contract.
+
+A download runs as a background **job**: the `download` mutation validates the input,
+starts the job (`backend/clazzziks/jobs.py`), and returns a `job_id`; the client then
+watches the `progress(job_id)` **subscription** for per-track events (queued →
+downloading → transcoding → done/failed, up to 4 tracks in parallel). GraphQL/JSON
+can't carry binary, so the terminal event carries a short-lived **token** and the
+produced MP3/ZIP bytes stream from the one non-GraphQL route, `GET /files/{token}`.
+
+In prod the whole surface is **HTTPS** — CloudFront redirects viewers HTTP→HTTPS and
+adds HSTS (the CloudFront↔origin hop stays HTTP by design); the subscription's
+WebSocket rides the same `/graphql` path (nginx upgrades it; CloudFront passes it through).
 
 ## Layout
 
@@ -16,8 +34,10 @@ All infrastructure work lives in `infra/`. See `infra/CLAUDE.md` for conventions
 
 ## Auth
 
-Optional **Firebase** auth gates `POST /api/download`: the React app signs in with
-Google and sends the ID token; the backend (`clazzziks/auth.py`) verifies it.
+Optional **Firebase** auth gates the `download` mutation (and the admin
+queries/mutations): the React app signs in with Google and sends the ID token;
+the backend (`clazzziks/auth.py`) verifies it per-resolver via GraphQL permission
+classes (`IsUser`/`IsAdmin` in `clazzziks/schema.py`).
 Enforced only when Firebase credentials are configured — otherwise both halves run
 open (keeps dev and tests secret-free). See the Authentication sections of the
 root `README.md` and `backend/CLAUDE.md`.
@@ -30,7 +50,8 @@ download log. Inside the devcontainer Postgres runs automatically as the `db`
 service (`CLAZZZIKS_DATABASE_URL` is pre-set); outside it, `docker compose up -d db`.
 In the deployed staging/production environments Postgres is **RDS**, provisioned
 by Pulumi (`infra/`); the EC2 instance reads its credentials from Secrets Manager
-at boot. The test suite runs against the same local Postgres. Rate limiting is FastAPI middleware —
+at boot. The test suite runs against the same local Postgres. Rate limiting is enforced
+in the GraphQL `download` resolver —
 normal users get 20 tracks/hour, VIPs are unlimited (or an admin-set per-VIP cap).
 Admins manage the group via the React `#/admin` dashboard or the `clazzziks-db` CLI.
 See the Database section of `backend/CLAUDE.md`.

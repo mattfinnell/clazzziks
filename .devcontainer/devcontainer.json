@@ -31,6 +31,7 @@
     "source=${localEnv:HOME}/.pulumi,target=/home/vscode/.pulumi-home,type=bind",
     "source=${localEnv:HOME}/.devcontainer-tmp,target=/workspaces/clazzziks/.config-host,type=bind,readonly",
     "source=${localEnv:HOME}/.claude,target=/workspaces/clazzziks/.claude,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json-host,type=bind,readonly",
     "source=${localEnv:HOME}/.zshrc,target=/home/vscode/.zshrc-host,type=bind,readonly",
     "source=${localEnv:HOME}/.oh-my-zsh,target=/home/vscode/.oh-my-zsh-host,type=bind,readonly"
   ],

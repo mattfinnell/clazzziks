@@ -26,38 +26,69 @@ uv run clazzziks-db vip ls     # manage the VIP group / rate limits
 
 The YouTube and SoundCloud downloaders show the direct-download pattern. YouTube also handles `ytsearch1:` queries (from URL-less spreadsheet rows), whose playlist-shaped result the base `_select_result` unwraps to the top match.
 
-## API contract
+## API surface & contract
 
-`clazzziks/openapi.json` is the **single source of truth** for the `/api` surface. FastAPI's auto-generated schema is disabled (`openapi_url=None`). If you add or change an endpoint:
+The API is **GraphQL** (Strawberry) at `POST /graphql` (GraphiQL on `GET /graphql`,
+subscriptions over WebSocket at the same path). The code-first schema in
+`clazzziks/schema.py` is the **single source of truth**; its emitted SDL,
+`clazzziks/schema.graphql`, is the committed contract shared with the frontend.
+`auto_camel_case` is **disabled**, so field names stay snake_case (`is_vip`,
+`rate_limit`, `job_id`, …) to match what the React client builds against.
 
-1. Update `openapi.json` by hand.
-2. Run `pytest tests/test_contract.py` — it validates live responses against the schema.
+**Downloads are jobs.** The `download` mutation validates input, starts a
+`DownloadJob` (`clazzziks/jobs.py`), and returns `{ job_id, count }`; the
+`progress(job_id)` subscription then streams `TrackProgress` events (up to 4 tracks
+in parallel) ending with a terminal `DownloadComplete`. Binary can't travel over
+GraphQL, so that terminal event carries a short-lived **token** and the produced
+MP3/ZIP bytes stream from the one non-GraphQL route, `GET /files/{token}` (in
+`api.py`, auth-gated). The job runs on a **daemon thread** (not an asyncio task) so
+it's independent of the request that started it; per-track events hop from the
+worker threads back onto the event loop (`call_soon_threadsafe`) to feed each
+subscriber. Every event is retained and replayed to late/reconnecting subscribers.
+The subscription is **ungated** — a `job_id` is an unguessable handle only an
+authorized caller (who passed the mutation's `IsUser` check) can obtain.
 
-Never add a new route without updating the contract.
+WebSocket support needs `websockets` (a dependency) for uvicorn; the schema is
+built with a `Subscription` type so Strawberry's `GraphQLRouter` serves it.
+
+If you add or change an operation:
+
+1. Edit the types/resolvers in `clazzziks/schema.py`.
+2. Regenerate the SDL:
+   `uv run python -c "from clazzziks.schema import schema; open('clazzziks/schema.graphql','w').write(schema.as_str()+'\n')"`
+3. Run `pytest tests/test_contract.py` — it fails if the emitted schema drifts from the committed SDL.
+
+Never change the schema without regenerating `schema.graphql`.
 
 ## Authentication
 
-`clazzziks/auth.py` verifies Firebase ID tokens and exposes the `require_user`
-FastAPI dependency that protects `POST /api/download`. Key rule: **auth is
-enforced only when configured** — `auth_configured()` is false without a Firebase
-credential, so `require_user` returns an anonymous user and the suite/dev stay
-open. Tests make it "configured" via env (`CLAZZZIKS_FIREBASE_PROJECT_ID`) and
-monkeypatch `clazzziks.auth.verify_token` — they never need firebase-admin or the
-network (see `tests/test_auth.py`).
+`clazzziks/auth.py` verifies Firebase ID tokens and exposes `require_user` /
+`require_admin`. GraphQL has one endpoint, so authz is enforced **per resolver** via
+the `IsUser` / `IsAdmin` permission classes in `clazzziks/schema.py`, which wrap those
+functions and stash the resolved user on the request context. `IsUser` gates the
+`download` mutation and `me` query; `IsAdmin` gates `vips`/`users` and the VIP
+mutations. Key rule: **auth is enforced only when configured** — `auth_configured()`
+is false without a Firebase credential, so `require_user` returns an anonymous user
+and the suite/dev stay open. Tests make it "configured" via env
+(`CLAZZZIKS_FIREBASE_PROJECT_ID`) and monkeypatch `clazzziks.auth.verify_token` — they
+never need firebase-admin or the network (see `tests/test_auth.py`).
 
 - **Verified email required.** The whole authz model (allowlist, admin, VIP) keys
-  off the token's `email`, so `require_user` rejects an **unverified** address with
-  `403` ("Verify your email address before continuing"). This matters because
+  off the token's `email`, so `require_user` rejects an **unverified** address
+  ("Verify your email address before continuing" — surfaced as a GraphQL error).
+  This matters because
   email/password signup is enabled — an unverified `email` claim is attacker-chosen
   (they could register the admin's address), so it must never be trusted. Google
   sign-in is always verified; password accounts must confirm the emailed link first.
   Hardening: set the Firebase project to **one account per email** and prefer
   keeping privileged (admin) accounts on the Google provider.
-- `CLAZZZIKS_ALLOWED_EMAILS` (optional) restricts access to an allowlist → `403`.
-- Auth aborts use `HTTPException`; a handler in `api.py` renders them in the
-  `{"error": ...}` contract shape (so `401`/`403` match the `Error` schema).
-- When adding a protected route, add its `security` + `401`/`403` responses to
-  `openapi.json` (the `firebaseToken` bearer scheme is already defined there).
+- `CLAZZZIKS_ALLOWED_EMAILS` (optional) restricts access to an allowlist.
+- A denied resolver surfaces the auth message as a GraphQL error (HTTP stays 200,
+  the permission borrows the underlying `HTTPException.detail`). The `/files` route
+  still raises `HTTPException`, rendered by the `api.py` handler in the
+  `{"error": ...}` shape.
+- When adding a protected operation, attach `permission_classes=[IsUser]` (or
+  `IsAdmin`) to its field/mutation in `schema.py` and regenerate `schema.graphql`.
 
 ## Database (cache, VIP group, rate limiting)
 
@@ -80,22 +111,22 @@ never touch ORM sessions. Three tables (`Base.metadata`, auto-created on first u
   the variable is unset, no owner is seeded.
 - **`download_log`** — one row per served download; drives the rate-limit count.
 
-**Rate limiting is FastAPI middleware** (`_rate_limit` in `api.py`'s `create_app`),
-enforced before any work on `POST /api/download`. `db.effective_rate_limit(email)`
+**Rate limiting lives in the `download` resolver** (`_over_rate_limit` in
+`clazzziks/schema.py`), checked before any work begins. `db.effective_rate_limit(email)`
 resolves the cap: a normal user gets `CLAZZZIKS_RATE_LIMIT` (default **20**) per
 `CLAZZZIKS_RATE_WINDOW_SECONDS` (default 3600); a VIP gets their configured
-`rate_limit` (unlimited unless an admin set a number). Over the cap → **429**. The
-middleware only *enforces* (pre-check); the handler *records* each downloaded track
-via `db.log_download`, so the count reflects what was actually served. Open/dev mode
-(auth not configured) is anonymous and unlimited.
+`rate_limit` (unlimited unless an admin set a number). Over the cap → a
+`RateLimitError` surfaced as a GraphQL error. The pre-check only *enforces*; the
+resolver *records* each downloaded track via `db.log_download`, so the count reflects
+what was actually served. Open/dev mode (auth not configured) is anonymous and unlimited.
 
 **VIP is distinct from the auth allowlist.** `CLAZZZIKS_ALLOWED_EMAILS` (in
 `auth.py`) gates *access* (403); the VIP group governs *rate-limit policy*.
 
-**Admin surface:** `require_admin` (in `auth.py`) gates `GET/POST /api/admin/vips`,
-`PATCH /api/admin/vips/{email}` (set a VIP's rate limit), `DELETE …` to DB admins
-(anonymous in open mode). `GET /api/me` reports the caller's VIP/admin status +
-effective `rate_limit` to the React `#/admin` dashboard (`frontend/`). Shell admin:
+**Admin surface:** the `IsAdmin` permission gates the `vips`/`users` queries and the
+`add_vip`/`update_vip`/`remove_vip`/`sync_users` mutations (DB admins; anonymous in
+open mode). The `me` query reports the caller's VIP/admin status + effective
+`rate_limit` to the React `#/admin` dashboard (`frontend/`). Shell admin:
 `clazzziks-db vip add|limit|rm|ls` (`clazzziks/admin.py`).
 
 **Tests need a live Postgres** — automatic inside the devcontainer (the `db`
@@ -107,7 +138,7 @@ database (`CLAZZZIKS_TEST_DATABASE_URL`, auto-created if missing). See
 
 ## Test patterns
 
-- **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_units.py`): use `monkeypatch` to mock `download_audio` / `download_bundle`. No network. These run by default.
+- **Unit/contract tests** (`test_web.py`, `test_contract.py`, `test_jobs.py`, `test_units.py`): use `monkeypatch` to mock `clazzziks.jobs.download_audio` (the seam the job runner calls). Drive queries/mutations via the `tests/gql.py` HTTP helpers (`gql_data`, `gql_error`); the download flow (`do_download`, `run_download`, `download_error`) starts a job and drains its `progress` subscription **at the schema level** (`schema.subscribe`) — deterministic and transport-independent — then fetches `/files` over HTTP. No network. These run by default.
 - **Downloader e2e tests** (`test_e2e.py`): hit real URLs through the downloader layer directly. Mark with `@pytest.mark.e2e`. Use `tmp_path` as `outdir` — never write into `tracks/` from tests.
 - **API e2e tests** (`test_api_e2e.py`): hit real URLs through the full HTTP API stack (no mocking). Also marked `@pytest.mark.e2e`. Uses a `module`-scoped `live_client` fixture with a 300 s timeout to accommodate slow downloads.
 
@@ -117,7 +148,7 @@ Defined in `clazzziks/formats.py`:
 
 - MP3 below 320kbps → `mp3_bitrate_warning()` emits a warning (does not block the download).
 - If the source's actual bitrate (`info["abr"]`) is below 320 → `source_bitrate_warning()` warns that re-encoding won't recover quality.
-- Both warnings surface to the caller via `DownloadResult.warnings` and the `X-Clazzziks-Warnings` HTTP header.
+- Both warnings surface to the caller via `DownloadResult.warnings` (the CLI) and the `download` mutation's `warnings` field (the web/API).
 
 ## Batch downloads
 

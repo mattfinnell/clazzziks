@@ -1,21 +1,22 @@
 # CLAZZZIKS
 
-Audio downloader for **YouTube** and **SoundCloud**. The web utility and HTTP API
+Audio downloader for **YouTube** and **SoundCloud**. The web utility and GraphQL API
 always output **320kbps MP3** (single files and ZIP bundles alike); the CLI can
 additionally emit lossless **WAV**/**FLAC** on request.
 
 ## Project layout
 
 ```
-backend/    Python package (yt-dlp + ffmpeg core, CLI, FastAPI API) + tests
-frontend/   React + Vite web utility that talks to the backend over /api
+backend/    Python package (yt-dlp + ffmpeg core, CLI, GraphQL API) + tests
+frontend/   React + Vite web utility that talks to the backend GraphQL API
 infra/      Pulumi (TypeScript) — EC2, S3, CloudFront, ECR
-Dockerfile  Container image for the FastAPI backend (used by Pulumi/ECR)
+Dockerfile  Container image for the FastAPI/GraphQL backend (used by Pulumi/ECR)
 ```
 
-The frontend calls the backend only through `/api`. In development the Vite dev
-server proxies `/api` to FastAPI (no CORS/port juggling); the backend also
-sends permissive CORS headers so the two can run on separate origins if needed.
+The frontend calls the backend through GraphQL (`/graphql`) plus the `/files/:token`
+download stream. In development the Vite dev server proxies both to the backend (no
+CORS/port juggling); the backend also sends permissive CORS headers so the two can
+run on separate origins if needed.
 
 ## Quick start (both halves)
 
@@ -82,45 +83,61 @@ shows backend health, and surfaces quality warnings (output is always MP3).
 `pnpm build` emits static assets to `frontend/dist/`
 for hosting behind any web server.
 
-The FastAPI backend also serves a minimal no-build fallback form at `/`.
+## GraphQL API
 
-## HTTP API
+The API is **GraphQL**, served at `POST /graphql` with the GraphiQL explorer on
+`GET /graphql` and **subscriptions over WebSocket** at the same path.
+
+A download runs as a background **job** so the UI can show live per-track progress
+(like docker layers building): the `download` mutation returns a `job_id`, and the
+`progress(job_id)` subscription streams a `TrackProgress` event per track (queued →
+downloading → transcoding → done/failed, up to 4 in parallel), ending with a
+terminal `DownloadComplete`. GraphQL/JSON can't carry binary, so that terminal event
+carries a short-lived **token** and the produced MP3/ZIP bytes stream from the one
+non-GraphQL route, `GET /files/{token}`.
 
 ```
-GET  /api/              -> Swagger UI (interactive docs)
-GET  /api/health        -> {"status":"ok"}
-GET  /api/openapi.json  -> the shared API contract (see below)
-GET  /api/formats       -> the served format (always MP3); backend probe
-POST /api/download      form/JSON: { links }   [auth-protected]
-                        -> MP3 file (1 link) or application/zip bundle of MP3s (many)
+POST /graphql        -> queries + mutations
+WS   /graphql        -> the progress subscription
+GET  /graphql        -> GraphiQL explorer
+GET  /files/{token}  -> stream a produced MP3 / ZIP bundle   [auth-protected]
+GET  /health         -> {"status":"ok"}
 ```
 
-`POST /api/download` requires a Firebase ID token (`Authorization: Bearer <token>`)
+Operations: `config`, `me`, `vips`, `users` (queries); `download`, `add_vip`,
+`update_vip`, `remove_vip`, `sync_users` (mutations); `progress` (subscription).
+The `download` mutation requires a Firebase ID token (`Authorization: Bearer <token>`)
 **when the backend is configured with Firebase credentials**; otherwise it stays
 open. See [Authentication](#authentication).
 
 ```bash
-curl -X POST localhost:5000/api/download \
-  -d 'links=https://youtu.be/<id>' -OJ
+# 1. Start a job -> job_id
+curl -s localhost:5000/graphql -H 'content-type: application/json' \
+  -d '{"query":"mutation($l:String!){download(links:$l){job_id count}}","variables":{"l":"https://youtu.be/<id>"}}'
+# 2. Watch progress over WS at ws://localhost:5000/graphql (subscription progress(job_id))
+#    -> the terminal DownloadComplete event carries the file token
+# 3. Stream the file
+curl -OJ "localhost:5000/files/<token>"
 ```
 
-Quality warnings are returned in the `X-Clazzziks-Warnings` response header.
+Quality warnings and per-track failures are returned on the terminal
+`DownloadComplete` event (`warnings` / `failures`).
 
 ### Shared API contract
 
-`backend/clazzziks/openapi.json` (OpenAPI 3.1) is the **single source of truth**
-for the `/api` surface shared by the backend and the React frontend. The backend
-serves it at `/api/openapi.json`; the frontend client (`frontend/src/api.ts`)
-builds against the same shapes; and `backend/tests/test_contract.py` validates
-the backend's live responses against it, so the two halves can't silently drift.
+The code-first GraphQL schema in `backend/clazzziks/schema.py` (Strawberry) is the
+**single source of truth**. Its emitted SDL, `backend/clazzziks/schema.graphql`, is the
+committed contract: the frontend client (`frontend/src/api.ts`) builds against those
+exact types/fields, and `backend/tests/test_contract.py` fails if the code drifts from
+the committed SDL, so the two halves can't silently diverge.
 
 ## Authentication
 
 Auth is **optional and off by default** — with no Firebase config, both halves run
 open so you can develop without secrets. When configured, the frontend gates behind
 **Google sign-in** and sends the user's Firebase ID token as a bearer token; the
-backend verifies it on `POST /api/download` and can restrict access to an email
-allowlist.
+backend verifies it on the `download` mutation (and admin operations) and can
+restrict access to an email allowlist.
 
 **Enable it (both halves must be configured):**
 
@@ -166,7 +183,7 @@ for power users:
 | MP3    | no       | 320kbps default; warns below 320              |
 
 MP3 requests below 320kbps, and sources whose real bitrate can't reach 320kbps,
-produce warnings (CLI output / API `X-Clazzziks-Warnings` header).
+produce warnings (CLI output / the `download` mutation's `warnings` field).
 
 **Quality ceiling:** YouTube serves audio at ~160kbps Opus. Requesting 320kbps
 MP3 sets the *encoding target* — re-encoding a 160kbps source does not recover

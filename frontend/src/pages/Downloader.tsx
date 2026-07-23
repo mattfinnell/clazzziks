@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { fetchConfig, requestDownload, saveBlob } from '../api'
+import { fetchConfig, startDownload, saveBlob, type TrackProgress } from '../api'
 import AsciiLogo from '../components/AsciiLogo'
 import Terms from '../components/Terms'
 import './Downloader.scss'
@@ -86,22 +86,30 @@ export default function Downloader() {
   })
 
   const [links, setLinks] = useState('')
+  // Live per-track progress, keyed by the job's track index (docker-layer readout).
+  const [tracks, setTracks] = useState<Record<number, TrackProgress>>({})
 
   const download = useMutation({
-    mutationFn: requestDownload,
+    mutationFn: (payload: string) =>
+      startDownload(payload, (t) => setTracks((prev) => ({ ...prev, [t.index]: t }))),
     onSuccess: ({ filename, blob }) => saveBlob(blob, filename),
   })
 
   const { valid, problems } = useMemo(() => validateLinks(links), [links])
   const validCount = valid.length
   const isBundle = validCount > 1
+  const trackList = useMemo(
+    () => Object.values(tracks).sort((a, b) => a.index - b.index),
+    [tracks],
+  )
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (validCount === 0) return
     // Submit only the valid links so unsupported/invalid entries never reach the
     // backend (the UI has already told the user about them).
-    download.mutate({ links: valid.join('\n') })
+    setTracks({})
+    download.mutate(valid.join('\n'))
   }
 
   return (
@@ -143,6 +151,8 @@ export default function Downloader() {
             </button>
           </form>
 
+          <TrackReadout tracks={trackList} />
+
           <StatusNote
             isPending={download.isPending}
             isError={download.isError}
@@ -165,6 +175,52 @@ export default function Downloader() {
       </div>
     </div>
   )
+}
+
+// Docker-build-style readout: one line per track advancing through its states.
+function TrackReadout({ tracks }: { tracks: TrackProgress[] }) {
+  if (tracks.length === 0) return null
+  return (
+    <ul className="downloader__tracks" role="status" aria-live="polite">
+      {tracks.map((t) => (
+        <TrackLine key={t.index} track={t} />
+      ))}
+    </ul>
+  )
+}
+
+function TrackLine({ track }: { track: TrackProgress }) {
+  const label = track.title || shortUrl(track.url)
+  const pct = track.pct ?? (track.state === 'done' ? 100 : 0)
+  let status: string
+  switch (track.state) {
+    case 'queued': status = 'queued'; break
+    case 'downloading': status = `${Math.round(pct)}%`; break
+    case 'transcoding': status = 'transcoding'; break
+    case 'done': status = 'done ✓'; break
+    default: status = `failed — ${track.error ?? 'error'}`
+  }
+  return (
+    <li className={`downloader__track downloader__track--${track.state}`}>
+      <span className="downloader__track-id">{String(track.index + 1).padStart(2, '0')}</span>
+      <span className="downloader__track-label" title={track.url}>{label}</span>
+      <span className="downloader__track-bar" aria-hidden="true">
+        <i style={{ width: `${pct}%` }} />
+      </span>
+      <span className="downloader__track-status">{status}</span>
+    </li>
+  )
+}
+
+// Trim a URL down to a compact host/last-segment label for the readout.
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    const tail = u.pathname.split('/').filter(Boolean).pop() || u.hostname
+    return `${u.hostname.replace(/^www\./, '')}/${tail}`
+  } catch {
+    return url
+  }
 }
 
 function StatusNote({

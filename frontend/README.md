@@ -1,11 +1,14 @@
 # CLAZZZIKS frontend
 
 React + Vite web utility for the CLAZZZIKS audio downloader. Built with
-React, TypeScript and SCSS. Talks to the Python backend exclusively through `/api`.
+React, TypeScript and SCSS. Talks to the Python backend over **GraphQL** (`/graphql`):
+queries/mutations via `graphql-request`, the live `progress` **subscription** over
+WebSocket via `graphql-ws`, and the `/files/:token` download stream — all wired into
+`@tanstack/react-query`.
 
 ```bash
 pnpm install
-pnpm dev       # http://localhost:5173 (proxies /api -> http://localhost:5000)
+pnpm dev       # http://localhost:5173 (proxies /graphql + /files -> http://localhost:5000)
 pnpm build     # static bundle -> dist/
 pnpm preview   # serve the production build locally
 ```
@@ -14,24 +17,27 @@ pnpm preview   # serve the production build locally
 
 | Variable | Default | Description |
 |---|---|---|
-| `VITE_API_TARGET` | `http://localhost:5000` | Backend the Vite dev server proxies `/api` to |
-| `VITE_API_BASE` | `/api` | API base path used by the browser client at runtime; set to a full URL to call a backend on a different origin (CORS is enabled server-side) |
+| `VITE_API_TARGET` | `http://localhost:5000` | Backend the Vite dev server proxies `/graphql` + `/files` to |
+| `VITE_API_BASE` | *(empty)* | API base prefix used by the browser client; empty = same-origin. Set to a full URL to call a backend on a different origin (CORS is enabled server-side) |
 
 ```bash
 # Point the dev proxy at a remote backend (e.g. the staging Elastic IP)
 VITE_API_TARGET=http://<elastic-ip> pnpm dev
 
 # Call a different-origin API in the built app
-VITE_API_BASE=http://<elastic-ip>/api pnpm build
+VITE_API_BASE=http://<elastic-ip> pnpm build
 ```
 
 ## Source files
 
-- `src/api.js` — backend client (`fetchConfig`, `fetchContract`, `requestDownload`,
-  `saveBlob`). Parses `X-Clazzziks-Warnings` from response headers and triggers
-  a browser file-save on download.
-- `src/App.jsx` — the UI: link textarea, format/bitrate selectors,
-  single-vs-bundle detection, backend health indicator, warning display.
+- `src/api.ts` — GraphQL backend client (`fetchConfig`, `fetchMe`, `listVips`,
+  `listUsers`, `syncUsers`, `addVip`, `updateVip`, `removeVip`, `startDownload`,
+  `saveBlob`). `startDownload` runs the `download` mutation, subscribes to
+  `progress(job_id)` over WebSocket (calling back on every per-track state change),
+  then streams the produced file from `/files/:token` and triggers a browser file-save.
+- `src/pages/Downloader.tsx` — the download UI: link textarea, single-vs-bundle
+  detection, backend health indicator, and a docker-build-style per-track progress
+  readout (queued → downloading % → transcoding → done/failed) fed by the subscription.
 
 ## Production build (for AWS deploy)
 
@@ -43,17 +49,17 @@ cd frontend && pnpm install && pnpm build
 cd ../infra  && pulumi up -s staging
 ```
 
-The built app calls `/api/*` using relative paths, which CloudFront routes to
-the EC2 Elastic IP origin — no per-environment API URL configuration is needed.
-Environment overrides:
+The built app calls `/graphql` and `/files/*` using relative paths, which CloudFront
+routes to the EC2 Elastic IP origin — no per-environment API URL configuration is
+needed. Environment overrides:
 
-- `VITE_API_TARGET` — backend the dev server proxies `/api` to (default `http://localhost:5000`).
-- `VITE_API_BASE` — API base path used by the client (default `/api`); set to a full
-  URL to call a backend on another origin directly (CORS is enabled server-side).
+- `VITE_API_TARGET` — backend the dev server proxies `/graphql` + `/files` to (default `http://localhost:5000`).
+- `VITE_API_BASE` — API base prefix used by the client (default empty = same-origin);
+  set to a full URL to call a backend on another origin directly (CORS is enabled server-side).
 - `VITE_FIREBASE_*` — Firebase web config (see `.env.example`). When set, the app
-  gates behind Google sign-in and sends the user's ID token as a bearer token on
-  `/api/download`. When **unset**, the app runs in open mode (no login), mirroring
-  a backend that has no Firebase credentials.
+  gates behind Google sign-in and sends the user's ID token as a bearer token on the
+  `download` mutation and admin operations. When **unset**, the app runs in open mode
+  (no login), mirroring a backend that has no Firebase credentials.
 
 ## Authentication
 
@@ -71,7 +77,7 @@ src/
 ├── main.tsx               entry point
 ├── App.tsx                shell — page state + TopNav
 ├── vite-env.d.ts          Vite/ImportMeta type shims
-├── api.ts                 typed backend client (fetchConfig, requestDownload, saveBlob)
+├── api.ts                 GraphQL backend client (fetchConfig, requestDownload, saveBlob, …)
 ├── styles/
 │   └── globals.scss       CSS custom properties + reset
 ├── components/
@@ -80,14 +86,15 @@ src/
 └── pages/
     ├── HelloWorld.tsx     landing page (no API calls)
     ├── HelloWorld.scss
-    ├── Downloader.tsx     download UI (calls /api/formats + /api/download)
+    ├── Downloader.tsx     download UI (config query + download mutation)
     └── Downloader.scss
 ```
 
 ## API contract
 
-The backend and frontend share a single source of truth for the `/api` surface:
-`backend/clazzziks/openapi.json` (OpenAPI 3.1), served live at
-`/api/openapi.json` (`fetchContract()`). The request/response shapes in
-`src/api.ts` follow it, and the backend validates its responses against it in
-`backend/tests/test_contract.py` — so the two sides can't silently drift.
+The backend and frontend share a single source of truth for the GraphQL API: the
+code-first schema in `backend/clazzziks/schema.py`, whose emitted SDL
+`backend/clazzziks/schema.graphql` is the committed contract. The operations in
+`src/api.ts` build against those exact types/fields (field names are snake_case —
+`auto_camel_case` is disabled server-side), and `backend/tests/test_contract.py`
+fails if the schema drifts from the committed SDL — so the two sides can't diverge.

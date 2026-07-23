@@ -101,12 +101,21 @@ def download_bundle(
     )
 
 
-def _write_zip(bundle_path: Path, items: list[DownloadResult]) -> None:
+def write_zip(bundle_path: Path, items: list[DownloadResult]) -> None:
+    """Pack downloaded tracks into a ZIP, de-duplicating collided filenames.
+
+    Public so the async job runner (:mod:`clazzziks.jobs`) can reuse the exact
+    bundling the sequential :func:`download_bundle` uses.
+    """
     with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
         used: set[str] = set()
         for item in items:
             arcname = _unique_arcname(item.path.name, used)
             zf.write(item.path, arcname=arcname)
+
+
+# Backwards-compatible internal alias (the sequential bundler calls this).
+_write_zip = write_zip
 
 
 def _unique_arcname(name: str, used: set[str]) -> str:

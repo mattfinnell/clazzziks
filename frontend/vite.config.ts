@@ -14,10 +14,10 @@ export default defineConfig({
     host: true, // bind 0.0.0.0 so the devcontainer/host can reach it
     port: 5173,
     proxy: {
-      '/api': {
-        target: API_TARGET,
-        changeOrigin: true,
-      },
+      // The GraphQL API and the /files download stream both live on the backend.
+      // ws:true proxies the subscription's WebSocket upgrade to /graphql too.
+      '/graphql': { target: API_TARGET, changeOrigin: true, ws: true },
+      '/files': { target: API_TARGET, changeOrigin: true },
     },
   },
 })
