@@ -76,4 +76,4 @@ firebase-service-account*.json
 .notes
 
 # Cloud Credentials (never commit)
-.credentials
+.creds
