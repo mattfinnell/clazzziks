@@ -11,21 +11,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.101.1",
-    "firebase": "^11.0.0",
+    "@tanstack/react-query": "^5.101.4",
+    "firebase": "^12.16.0",
     "graphql": "^17.0.2",
     "graphql-request": "^7.4.0",
-    "graphql-ws": "^6.1.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "graphql-ws": "^6.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@tanstack/react-query-devtools": "^5.101.1",
-    "@types/react": "^18.3.1",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.1",
-    "sass": "^1.77.8",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.0"
+    "@tanstack/react-query-devtools": "^5.101.4",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "sass": "^1.102.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5"
   }
 }
